@@ -1,0 +1,159 @@
+pass_gate:
+  status: complete
+  pass: core
+  previous_pass: null
+  previous_run: null
+  previous_pass_stable: true
+  gate_decision: skipped_core
+  notes: "core pass requires no predecessor check; gate passed (core-pass-no-check)"
+  carry_forward: {}
+
+prime:
+  status: complete
+  project: "PlatformRush"
+  stack: "pixi + solidjs + gsap + bun (vite, vitest)"
+  existing_features: 11
+  dom_overlays:
+    - "Logo (bottom-8, ~32px)"
+    - "PauseOverlay (scaffold, top)"
+  carry_forward:
+    target_device: "iPhone reference portrait 390x844 (dvh)"
+    game_greenfield: true
+    reserved_bottom_px: 64
+    reserved_top_px: 0
+    game_controller_stub: true
+    stack_gaps: []
+    host_rules_missing: false
+
+analyze:
+  status: complete
+  features:
+    exists: 5
+    partial: 4
+    new: 19
+    conflict: 1
+    content_gap: 2
+  conflict_breakdown:
+    reuse: 0
+    adapt: 1
+    replace: 1
+  high_risk:
+    - game-controller-stub
+    - ecs-plugin
+    - physics-engine
+    - level-generation-system
+  medium_risk:
+    - game-state-signals
+    - start-title-screen
+    - results-screen
+    - asset-manifest-bundles
+    - runner-entity
+    - tap-hold-input
+    - platform-entities
+    - obstacle-entities
+    - board-states
+    - hud-renderer
+    - district-map-screen
+    - win-sequence
+    - loss-retry-system
+    - visual-identity
+  open_questions: 3
+  carry_forward:
+    critical_integration_point: game-controller-stub
+    transformative_hint: false
+
+plan:
+  status: complete
+  gdd_type: "transformative"
+  batches: 8
+  features: 31
+  new_files: 28
+  modified_files: 9
+  viewport_budget:
+    hud_top_gpu: 80
+    play_area: 700
+    dom_reserved_bottom: 64
+    total: 844
+    available_width: 390
+  resolved_questions: 3
+  out_of_pass_cos:
+    - "skill-curve (level-generation-system) — gated at meta pass; deferred"
+  warnings:
+    - "collision-resolved:screen-id-district-map — skill-wins (scaffold-state valid-screen-ids); district map as SolidJS overlay on start screen"
+    - "collision-resolved:screen-id-interstitial — skill-wins (scaffold-state valid-screen-ids); course interstitial as DOM overlay within game lifecycle"
+    - "collision-resolved:screen-id-district-complete — skill-wins (scaffold-state valid-screen-ids); district complete as branch of results screen"
+    - "collision-resolved:results-screen-copy — skill-wins (soft, G15 critical); GDD 'Nice try!' adopted as G15-compliant replacement for scaffold 'Game Over'"
+    - "collision-resolved:game-controller-mode — skill-wins (G15 critical); DOM stub replaced with Pixi GameController"
+    - "collision-resolved:scoring-dimensions — skill-wins (scoring-CoS soft); speedMultiplier added as second multiplicative dimension"
+    - "self-audit:src-core-readonly — PASS"
+    - "self-audit:no-stubs-placeholders — PASS"
+    - "self-audit:slug-substitution — PASS"
+    - "self-audit:collision-resolution-coverage — PASS"
+    - "self-audit:integration-file-coverage — PASS"
+  resolved_questions_scalars:
+    q-game-name: "platformrush"
+    q-scoring-dimensions: "tokenScore * clamp(parTime/actualTime, 1.0, 2.0)"
+    q-district-progression-persistence: "in-memory core pass; persistence deferred to meta"
+  carry_forward:
+    game_slug: "platformrush"
+    hook_batch: 1
+    priority_ordering_applied: true
+    cos_deferred_to_batch: ["skill-curve:deferred-to-pass-meta"]
+    viewport_budget_derived_from: "greenfield_defaults"
+    critical_integration_point: "game-controller-stub"
+
+implement:
+  status: pending
+  batches_completed: "0/0"
+  files_modified: 0
+  files_created: 0
+  tests_added: 0
+  features_audited: 0
+  issues_found: 0
+  fixes_applied: 0
+  deferred: []
+  blockers: []
+  ux_gaps: []
+  cos_gaps: []
+  cos_findings: []
+  carry_forward: {}
+
+integrate:
+  status: pending
+  viewport_rederived: false
+  orphans_wired: []
+  orphans_deleted: []
+  fallbacks_unified: []
+  unreachable: []
+  warnings: []
+  carry_forward: {}
+
+player_flow:
+  status: pending
+  journey_walked: false
+  transitions_checked: []
+  fun_test_result: ""
+  issues_found: 0
+  fixes_applied: 0
+  carry_forward: {}
+
+verify:
+  status: pending
+  build: ""
+  tests_passing: 0
+  tests_total: 0
+  fix_cycles: 0
+  playability: ""
+  remaining_issues: []
+  carry_forward: {}
+
+stabilize:
+  status: pending
+  completion_ratio: ""
+  test_count: 0
+  known_issues: []
+  cos_failed: []
+  cos_rationale: []
+  completeness_gaps: []
+  pipeline_status: ""
+  carry_forward: {}

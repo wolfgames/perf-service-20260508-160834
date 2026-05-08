@@ -1,0 +1,830 @@
+# implementation-plan.yml — Structured batch execution plan
+# Written by phase 30 (plan). Read by implement, integrate, player-flow, stabilize.
+
+game: "PlatformRush"
+gdd_type: "transformative"
+# Transformative: game-controller-stub is a hard replace (DOM stub → Pixi GPU game loop).
+# Core mechanic, physics, ECS, and renderer all start from scratch.
+# Batch 1 = foundation: replace core state + renderer + canvas. Must compile and render a runner.
+total_batches: 8
+total_features: 31
+new_files: 28
+modified_files: 9
+
+viewport_budget:
+  default:
+    dom_reserved_top: 0
+    hud_top_gpu: 80
+    play_area: 700
+    dom_reserved_bottom: 64
+    total: 844
+    available_width: 390
+    runner_min_px: 48
+    platform_cell_px: "64x24"
+    jump_zone_min_px: "390x350"
+    source_refs:
+      - "prime.carry_forward.reserved_bottom_px=64 (DOM logo + margin)"
+      - "prime.carry_forward.reserved_top_px=0"
+      - "gdd-analysis.yml features[hud-renderer].notes — HUD reserves top 80 px"
+      - "gdd-analysis.yml features[platform-entities].notes — platform cell 64x24 px"
+      - "references/stack-profiles/pixi/viewport.md — budget formula"
+    fit_check: "700px play area > 60% of 844px (506px min) — OK"
+    overlap_check: "HUD 80px + play 700px + DOM-bottom 64px = 844px — exact fit, no overlap"
+
+resolved_questions:
+  - question: "q-game-name: What is the game slug (directory name under src/game/)?"
+    decision: "platformrush"
+    rationale: >
+      GDD title 'PlatformRush' mapped to lowercase no-hyphen slug 'platformrush'.
+      Consistent with kebab-free pattern for single-word game names. All <game-root>
+      tokens in this plan resolve to src/game/platformrush.
+
+  - question: "q-scoring-dimensions: Does PlatformRush scoring include any multiplier beyond token-count and star thresholds?"
+    decision: "Add speed-bonus multiplier: finalScore = tokenScore * speedMultiplier where speedMultiplier = clamp(parTime / actualTime, 1.0, 2.0). Two multiplicative dimensions: token count (magnitude) x speed (efficiency)."
+    rationale: >
+      Scoring CoS (core pass) requires ≥2 multiplicative dimensions. GDD's flat +10/token
+      is additive only. Adding speedMultiplier = clamp(parTime / actualTime, 1.0, 2.0)
+      gives a second multiplicative dimension: fast finish doubles the token score; slow
+      finish scores at baseline. Par time = courseLength_cells / (180 px/s / 64 px/cell).
+      This satisfies the scoring CoS base requirement and produces meaningful skill
+      differentiation without requiring features not in the GDD.
+
+  - question: "q-district-progression-persistence: Where is district/course unlock state persisted between sessions?"
+    decision: "Core pass: in-memory only (resets on page reload). Persistence deferred to meta pass."
+    rationale: >
+      Core pass scope is the playable game loop, not meta-progression durability.
+      In-memory unlock state suffices to test the district map and unlock flow within a
+      session. Full persistence (localStorage or server-side) is a meta-pass concern.
+      Flagged in completeness_gaps below.
+
+preserve_list:
+  - module: screen-wiring
+    action: reuse
+    reason: "Four-screen IDs and routing infrastructure intact — game/start/loading/results navigation unchanged"
+  - module: audio-system
+    action: reuse
+    reason: "Howler BaseAudioManager infrastructure works as-is; only audio content (bundles) is new"
+  - module: pause-overlay
+    action: reuse
+    reason: "Scaffold PauseOverlay wired in GameScreen.tsx covers PAUSED board state"
+  - module: analytics-error-tracking
+    action: reuse
+    reason: "PostHog/Sentry wiring present; no game-specific events needed for core pass"
+  - module: loading-screen
+    action: reuse
+    reason: "Boot/theme bundle loading, progress bar, and auto-transition all functional"
+  - module: game-controller-interface
+    action: reuse
+    reason: "setupGame contract (GameController interface) and screen wiring are preserved; only implementation replaces"
+
+completeness_gaps:
+  - item: "District/course unlock persistence across sessions (localStorage / server-side)"
+    checklist_path: "meta pass — progress persistence"
+    severity: low
+  - item: "Full district × 8-course fixture set (3 districts = 24 fixture files). Core pass ships district-0 (3 files) and framework for others."
+    checklist_path: "core pass — content sufficiency"
+    severity: medium
+
+batches:
+
+  # ── BATCH 1 ─────────────────────────────────────────────────────────────────
+  - id: 1
+    name: "Foundation — ECS Plugin + Game Canvas + Runner"
+    priority: P0
+    player_visible: >
+      Player sees a Pixi canvas fill the screen. A courier-character rectangle (48×48 px, cyan tint,
+      labeled '🏃') scrolls right on an infinite grey ground plane. The canvas is alive — the runner
+      moves. No jump yet.
+    features:
+      - ecs-plugin
+      - game-state-signals
+      - game-controller-stub
+      - runner-entity
+      - board-states
+    cos_covered:
+      - core-interaction
+      - animated-dynamics
+      - canvas
+      - scoring
+    ux_zones:
+      thumb_zone: [center]
+      touch_targets: [full-lower-screen-jump-zone]
+      feedback_surfaces: [pixi-canvas, runner-sprite]
+    acceptance:
+      # ecs-plugin
+      - given: "ECS plugin is instantiated with PlatformRushPlugin"
+        should: "all resources (score, starsEarned, tokensCollected, tokensTotal, retriesRemaining, districtIndex, courseIndex, boardState, runnerX, runnerY, runnerVY, scrollOffset) are readable and have correct initial values"
+      - given: "a transaction is dispatched to add score"
+        should: "score resource increments and bridgeEcsToSignals propagates the new value to DOM signals"
+      # game-state-signals
+      - given: "ECS resources are updated via transactions"
+        should: "DOM signals (score, level, stars) reflect the new values within one tick via bridgeEcsToSignals"
+      # game-controller-stub (replace)
+      - given: "the 'game' screen is navigated to"
+        should: "a Pixi Application is initialised (not a DOM div), canvas fills the viewport, and no DOM placeholder text is visible"
+      - given: "GameController.destroy() is called"
+        should: "GSAP tweens are killed, Pixi app is destroyed, ECS bridge is unset, setActiveDb(null) is called — in that order"
+      # runner-entity
+      - given: "RunnerRenderer is initialised"
+        should: "a 48×48 px emoji/tinted rectangle labeled '🏃' is visible at x≈25% of viewport width, y≈ground plane"
+      - given: "boardState transitions to AIRBORNE"
+        should: "runner visual changes to jump tint/emoji within 100 ms"
+      # board-states
+      - given: "boardState is IDLE and a tap is registered"
+        should: "boardState transitions to AIRBORNE"
+      - given: "boardState is AIRBORNE"
+        should: "input events are blocked (no second jump fires)"
+      # canvas CoS — runner ≥ 48×48 px
+      - given: "the game canvas renders at 390 px viewport width"
+        should: "runner visible area is ≥ 48×48 px and visually distinct from the background"
+      # animated-dynamics — no instant state changes
+      - given: "boardState transitions from IDLE to any other state"
+        should: "the transition produces an animation event in the queue — no state change is instant/silent"
+      # scoring — ECS resource exists
+      - given: "the ECS plugin is initialised"
+        should: "score resource starts at 0 and tokensTotal is set from level config"
+    test_loci:
+      - describe: "PlatformRushPlugin — ECS resources and transactions"
+        file: "tests/game/platformrush/PlatformRushPlugin.test.ts"
+        cases:
+          - "all resources have correct initial values"
+          - "addScore transaction increments score resource"
+          - "bridgeEcsToSignals propagates score to DOM signal"
+      - describe: "GameController — init and destroy lifecycle"
+        file: "tests/game/platformrush/GameController.test.ts"
+        cases:
+          - "init creates Pixi app not DOM div"
+          - "destroy kills tweens before Pixi destroy"
+          - "destroy calls setActiveDb(null)"
+      - describe: "RunnerRenderer — visual and state"
+        file: "tests/game/platformrush/renderers/RunnerRenderer.test.ts"
+        cases:
+          - "runner visible area is ≥ 48x48 px"
+          - "runner tint changes within 100ms of boardState AIRBORNE"
+      - describe: "board-states — state machine transitions"
+        file: "tests/game/platformrush/logic/stateTransitions.test.ts"
+        cases:
+          - "IDLE tap -> AIRBORNE"
+          - "AIRBORNE blocks second tap"
+          - "state change emits animation event"
+    files:
+      state:
+        - src/game/platformrush/PlatformRushPlugin.ts
+        - src/game/platformrush/state/types.ts
+        - src/game/state.ts
+        - src/game/platformrush/logic/stateTransitions.ts
+      integration:
+        - src/game/platformrush/GameController.ts
+        - src/game/platformrush/renderers/RunnerRenderer.ts
+      test:
+        - tests/game/platformrush/PlatformRushPlugin.test.ts
+        - tests/game/platformrush/GameController.test.ts
+        - tests/game/platformrush/renderers/RunnerRenderer.test.ts
+        - tests/game/platformrush/logic/stateTransitions.test.ts
+    how:
+      - "Create src/game/platformrush/ directory structure. Write PlatformRushPlugin.ts with all resources, archetypes, transactions, and actions in correct property order (extends→services→components→resources→archetypes→computed→transactions→actions→systems). No Pixi imports, no Math.random."
+      - "Replace the DOM-mode gameController.ts stub with a new GameController.ts that initialises a Pixi Application, creates bg/runner/hud/ui layers with correct eventMode, calls setActiveDb(ecsDb), and wires bridgeEcsToSignals. Destroy order: GSAP→Pixi→bridge→setActiveDb(null)."
+      - "RunnerRenderer: create a Pixi Container with a 48×48 emoji Text ('🏃' run state, '⬆' jump, '⬇' fall) positioned at 25% of viewportW, ground y. No Graphics API unlabeled shapes — use emoji text per fallback priority. Wire boardState → visual via animation event queue."
+    definition_of_done:
+      - "acceptance[] tests go red then green"
+      - "integration call site exists at files.integration (GameController.ts and RunnerRenderer.ts)"
+      - "every file in files.integration is exercised by at least one acceptance test"
+      - "CoS sub-walk clean for cos_covered: canvas (runner ≥ 48×48px), animated-dynamics (no instant state change), core-interaction (input blocked during AIRBORNE), scoring (resource exists)"
+      - "touch targets ≥ 44 px — game canvas covers entire screen; jump zone lower half (≥ 390×350 px)"
+      - "screen root elements consume reserved_top_px=0 / reserved_bottom_px=64 as padding (canvas does not render under DOM logo)"
+      - "no DOM elements inside GameController: no document.createElement, no element.style"
+      - "bun run build + bun run test pass within 3 fix cycles"
+    risk: HIGH
+    risk_reason: "Central integration point — DOM stub replaced with full Pixi init. ECS property order runtime-enforced. Touches renderer, state, lifecycle, ECS, and signal bridge simultaneously. Rollback: revert GameController.ts to DOM stub from git history; ECS plugin is additive."
+
+  # ── BATCH 2 ─────────────────────────────────────────────────────────────────
+  - id: 2
+    name: "Physics + Tap-Hold Input"
+    priority: P0
+    player_visible: >
+      Player taps the screen → runner jumps with a visible arc (short hop ≈ 96 px apex).
+      Holding longer produces a longer leap (up to 160 px). Gravity pulls runner back down.
+      Runner animation changes to jump/fall states. A radial-fill charge indicator appears
+      during hold.
+    features:
+      - physics-engine
+      - tap-hold-input
+    cos_covered:
+      - core-interaction
+      - animated-dynamics
+    ux_zones:
+      thumb_zone: [center]
+      touch_targets: [full-lower-screen-jump-zone]
+      feedback_surfaces: [pixi-canvas, runner-sprite, hold-charge-indicator]
+    acceptance:
+      # physics-engine
+      - given: "executeTap action is called with hold duration 0 ms (tap)"
+        should: "runnerVY is set for short-hop and tickPhysics returns animation events for a 96 px apex arc over 400 ms"
+      - given: "executeTap action is called with hold duration 500 ms (max hold)"
+        should: "runnerVY is set for long-leap and apex scales to 160 px over 600 ms"
+      - given: "hold duration > 500 ms"
+        should: "behavior is identical to 500 ms (clamped)"
+      - given: "tickPhysics is called each frame while AIRBORNE"
+        should: "runnerY follows gravity (9.8 × 64 px/s² acceleration), not constant speed"
+      # tap-hold-input
+      - given: "player taps (pointerdown then pointerup ≤ 150 ms) on lower screen half"
+        should: "executeTap dispatched with short-hop hold duration; runner jump begins within 100 ms of pointerdown"
+      - given: "player holds (pointerdown 300 ms then pointerup)"
+        should: "radial-fill charge indicator is visible during hold; executeTap dispatched with hold=300 ms"
+      - given: "boardState is AIRBORNE when pointerdown fires"
+        should: "input is ignored (no double jump)"
+      - given: "touch-action: none is set on game container"
+        should: "native scroll/zoom does not fire during gameplay"
+      # animated-dynamics — parabolic arc
+      - given: "runner is in AIRBORNE state"
+        should: "runner sprite follows parabolic arc (not straight line) with visible arc height"
+      # core-interaction — one-gesture, pointer events
+      - given: "an invalid input fires during LANDING state"
+        should: "input is silently dropped (no crash, no second jump) and boardState stays LANDING"
+    test_loci:
+      - describe: "physics — jump arc calculation"
+        file: "tests/game/platformrush/logic/physics.test.ts"
+        cases:
+          - "short hop: apex ~96 px, duration ~400 ms"
+          - "long leap: apex ~160 px at 500 ms hold"
+          - "hold > 500 ms clamped to 500 ms behavior"
+          - "gravity acceleration (not constant speed)"
+      - describe: "InputHandler — pointer event dispatch"
+        file: "tests/game/platformrush/input/InputHandler.test.ts"
+        cases:
+          - "tap <= 150ms dispatches short-hop"
+          - "hold 300ms dispatches scaled leap"
+          - "input blocked in AIRBORNE"
+          - "radial fill shown during hold"
+    files:
+      state:
+        - src/game/platformrush/logic/physics.ts
+        - src/game/platformrush/PlatformRushPlugin.ts
+      integration:
+        - src/game/platformrush/input/InputHandler.ts
+        - src/game/platformrush/GameController.ts
+      test:
+        - tests/game/platformrush/logic/physics.test.ts
+        - tests/game/platformrush/input/InputHandler.test.ts
+    how:
+      - "Write physics.ts as a pure function module: no Pixi imports, no Math.random. Exports calcJumpVelocity(holdMs) and tickPhysics(state) → {runnerY, runnerVY, animationEvents[]}. Constants: gravity=9.8×64, shortHopApex=96, longLeapApex=160, scrollSpeed=180."
+      - "Write InputHandler.ts: attach pointerdown/pointerup to the Pixi stage (eventMode='static' on root). On pointerdown start radial-fill GSAP tween; on pointerup calc hold duration, kill tween, dispatch executeTap. Route through GameController's existing tap handler — no second listener on stage."
+      - "Update PlatformRushPlugin.ts actions: executeTap calls calcJumpVelocity, writes runnerVY. tickPhysics integrated into game loop tick — returns animation events consumed by GameController for GSAP runner arc. No Pixi in action bodies."
+    definition_of_done:
+      - "acceptance[] tests go red then green"
+      - "integration call site exists at files.integration (InputHandler.ts wired in GameController)"
+      - "every file in files.integration is exercised by at least one acceptance test"
+      - "CoS sub-walk clean: animated-dynamics (parabolic arc, not straight line), core-interaction (one gesture, pointer events, input blocked during non-idle)"
+      - "touch targets ≥ 44 px — jump zone lower half of screen ≥ 390×350 px"
+      - "radial-fill charge indicator uses GSAP — no requestAnimationFrame"
+      - "bun run build + bun run test pass within 3 fix cycles"
+    risk: HIGH
+    risk_reason: "Physics is viewport-affecting: runner position, scroll offset, and collision feed the renderer. Deterministic output required for level solvability. Wrong gravity constant manifests as unplayable arcs. Verify: step through physics tick manually with known hold durations; assert apex height within ±5 px."
+
+  # ── BATCH 3 ─────────────────────────────────────────────────────────────────
+  - id: 3
+    name: "Platforms + Level System"
+    priority: P0
+    player_visible: >
+      Course loads from hand-crafted fixture. Platforms are visible (grey slabs 64×24 px).
+      Runner can land on platforms and run across them. Gaps between platforms require jumping.
+      Crumbling platforms (orange tint '🟧') and bouncy platforms (green '🟩') are visually
+      distinct. Course has a defined start and end.
+    features:
+      - platform-entities
+      - level-generation-system
+      - hand-crafted-levels
+    cos_covered:
+      - core-interaction
+      - animated-dynamics
+      - canvas
+    ux_zones:
+      thumb_zone: [center]
+      touch_targets: []
+      feedback_surfaces: [pixi-canvas]
+    acceptance:
+      # platform-entities
+      - given: "a Normal platform is in the course"
+        should: "it renders as a grey labeled rectangle (64×24 px visible), runner can stand on it"
+      - given: "runner lands on a Crumbling platform"
+        should: "a 300 ms crumble animation plays (orange tint fades/shakes), platform disappears after 500 ms, crumble-start event emitted"
+      - given: "runner lands on a Bouncy platform"
+        should: "runner launches at 1.8× short-hop apex within 150 ms, bounce-launch event emitted"
+      - given: "platform types are visible simultaneously"
+        should: "Normal, Crumbling, and Bouncy are visually distinct at a glance (3 different tints/emoji)"
+      # level-generation-system
+      - given: "levelGenerator is called with district=0, course=2 (procedural)"
+        should: "a solvable course is produced with gapRangeMax≤2, obstacleChance=0.05"
+      - given: "the same seed is used twice"
+        should: "identical course is produced (deterministic)"
+      - given: "a generated course fails solvability (GAP_TOO_WIDE)"
+        should: "retry fires (seed+1), up to 10 attempts, then falls back to district-0/fallback.json"
+      # hand-crafted-levels
+      - given: "district=0, course=0 is requested"
+        should: "hand-crafted fixture loads (no obstacles, narrow gaps) — safe intro course"
+      - given: "district=0, course=1 is requested"
+        should: "hand-crafted fixture loads introducing crumbling platforms"
+      # canvas CoS — platform visual distinctiveness
+      - given: "the course renders at 390 px width"
+        should: "platform cells are visually distinguishable from background and from each other at a glance"
+      # animated-dynamics — no instant platform disappear
+      - given: "a Crumbling platform is triggered"
+        should: "crumble is animated (300 ms), not instant removal"
+    test_loci:
+      - describe: "platform logic — types and behaviors"
+        file: "tests/game/platformrush/logic/platformLogic.test.ts"
+        cases:
+          - "Normal platform supports runner"
+          - "Crumbling emits crumble-start at contact, crumble-complete at 500ms"
+          - "Bouncy launches at 1.8x apex"
+      - describe: "levelGenerator — seeded procedural algorithm"
+        file: "tests/game/platformrush/logic/levelGenerator.test.ts"
+        cases:
+          - "same seed produces identical course"
+          - "district=0 course=2 gapRangeMax<=2"
+          - "GAP_TOO_WIDE triggers retry up to 10 times"
+          - "10 failures falls back to fixture"
+      - describe: "courseLoader — fixture loading"
+        file: "tests/game/platformrush/logic/courseLoader.test.ts"
+        cases:
+          - "district=0 course=0 loads hand-crafted fixture"
+          - "district=0 course=1 loads hand-crafted fixture"
+          - "fixture pool >= 3 files for district-0"
+    files:
+      state:
+        - src/game/platformrush/logic/physics.ts
+        - src/game/platformrush/logic/platformLogic.ts
+        - src/game/platformrush/logic/levelGenerator.ts
+        - src/game/platformrush/logic/rng.ts
+        - src/game/platformrush/logic/solvabilityValidator.ts
+        - src/game/platformrush/logic/courseLoader.ts
+        - src/game/platformrush/data/courses/district-0/course-0.json
+        - src/game/platformrush/data/courses/district-0/course-1.json
+        - src/game/platformrush/data/courses/district-0/fallback.json
+        - src/game/platformrush/PlatformRushPlugin.ts
+      integration:
+        - src/game/platformrush/renderers/PlatformRenderer.ts
+        - src/game/platformrush/GameController.ts
+      test:
+        - tests/game/platformrush/logic/platformLogic.test.ts
+        - tests/game/platformrush/logic/levelGenerator.test.ts
+        - tests/game/platformrush/logic/courseLoader.test.ts
+    how:
+      - "Write rng.ts (deterministic LCG), levelGenerator.ts (6-step algorithm with difficulty bands), solvabilityValidator.ts (rejects GAP_TOO_WIDE, TOO_MANY_CONSECUTIVE_CRUMBLING, COURSE_TOO_SHORT), courseLoader.ts (district/course dispatch → procedural or fixture). All pure — no Math.random, no Pixi."
+      - "Write 3 hand-crafted JSON fixtures for district-0: course-0 (no obstacles, gap≤1), course-1 (introduces crumbling, no bouncy), fallback (5 normal platforms, no obstacles, gap=1). Each fixture must pass solvabilityValidator."
+      - "PlatformRenderer: render each platform as a labeled colored rectangle (Normal=grey '⬛', Crumbling=orange '🟧', Bouncy=green '🟩'). Wire crumble animation: GSAP alpha+shake 300 ms on crumble-start event, remove entity on crumble-complete. Bounce: GSAP scale pulse 150 ms on bounce-launch."
+    definition_of_done:
+      - "acceptance[] tests go red then green"
+      - "integration call site exists at files.integration (PlatformRenderer wired in GameController)"
+      - "every file in files.integration is exercised by at least one acceptance test"
+      - "CoS sub-walk clean: canvas (3 platform types visually distinct), animated-dynamics (crumble animated not instant), core-interaction (solvable course loads)"
+      - "fixture pool for district-0 >= 3 files (course-0, course-1, fallback) — content-sufficiency check"
+      - "levelGenerator same-seed determinism verified across 10 runs"
+      - "bun run build + bun run test pass within 3 fix cycles"
+    risk: HIGH
+    risk_reason: "Level generation has 6-step algorithm with rejection conditions. Generation bug can silently produce unplayable courses. Mitigation: solvabilityValidator as gating function; fallback fixture chain. Verify: test 50 procedural seeds for district-0, assert all pass solvabilityValidator or fall back cleanly."
+
+  # ── BATCH 4 ─────────────────────────────────────────────────────────────────
+  - id: 4
+    name: "Core Loop Complete — Tokens, Finish, Obstacles, Scoring"
+    priority: P0
+    player_visible: >
+      Glowing yellow tokens float above platforms. Running over one plays a 120 ms pop animation
+      and increments score (+10 visible in top area). Crate obstacles kill the runner on contact.
+      Fan obstacles slow the runner visually. A chequered finish flag marks the course end.
+      Reaching the flag triggers the win sequence start. Falling off the screen triggers loss.
+      Stars (1–3) are calculated based on tokens collected and speed.
+    features:
+      - token-entity
+      - finish-flag-entity
+      - scoring-system
+      - star-rating-system
+      - obstacle-entities
+    cos_covered:
+      - core-interaction
+      - animated-dynamics
+      - scoring
+    ux_zones:
+      thumb_zone: [center]
+      touch_targets: []
+      feedback_surfaces: [pixi-canvas, hud]
+    acceptance:
+      # token-entity
+      - given: "runner overlaps a token"
+        should: "token plays 120 ms pop animation, disappears, score +10, tokensCollected increments"
+      - given: "a token is present"
+        should: "it renders as a glowing yellow emoji '🪙' 40 px above platform surface, hitbox ≥ 32×32 px"
+      # finish-flag-entity
+      - given: "runner.x >= finishFlag.x and runner is grounded"
+        should: "boardState transitions to WON within one tick"
+      - given: "finish flag is placed"
+        should: "it renders as '🏁' on a Normal platform ≥ 3 cells wide"
+      # scoring-system
+      - given: "5 of 10 tokens collected and course finished"
+        should: "score = (5 * 10) * speedMultiplier where speedMultiplier = clamp(parTime/actualTime, 1.0, 2.0)"
+      - given: "course finished at exactly parTime"
+        should: "speedMultiplier = 1.0 (no bonus)"
+      - given: "course finished in half parTime"
+        should: "speedMultiplier = 2.0 (capped)"
+      # star-rating-system
+      - given: "any tokens and course finished (even 0 tokens)"
+        should: "starsEarned = 1"
+      - given: "≥50% tokens collected and course finished"
+        should: "starsEarned = 2"
+      - given: "≥90% tokens collected and course finished"
+        should: "starsEarned = 3"
+      # obstacle-entities
+      - given: "runner contacts a Crate obstacle"
+        should: "boardState transitions to FALLING, fall animation begins, score not awarded"
+      - given: "runner is inside a Fan obstacle zone"
+        should: "horizontal momentum is reduced 30% (scrollSpeed * 0.7), wind-cone emoji '💨' visible"
+      # scoring CoS — multiplicative dimensions
+      - given: "two players finish same course: one collects all tokens quickly, one collects none slowly"
+        should: "skilled player score is at least 3× beginner score (base * speed multiplier)"
+    test_loci:
+      - describe: "tokenLogic — collection and scoring"
+        file: "tests/game/platformrush/logic/tokenLogic.test.ts"
+        cases:
+          - "token collect: +10 score, tokensCollected increments"
+          - "token pop animation fires on collect"
+      - describe: "scoring — formula and star thresholds"
+        file: "tests/game/platformrush/logic/scoring.test.ts"
+        cases:
+          - "score = tokenScore * speedMultiplier"
+          - "speedMultiplier clamped to [1.0, 2.0]"
+          - "1 star: any finish; 2 stars: >=50% tokens; 3 stars: >=90% tokens"
+          - "skilled player score >= 3x beginner on same course"
+      - describe: "obstacleLogic — crate and fan behaviors"
+        file: "tests/game/platformrush/logic/obstacleLogic.test.ts"
+        cases:
+          - "crate contact -> boardState FALLING"
+          - "fan zone -> scrollSpeed * 0.7"
+    files:
+      state:
+        - src/game/platformrush/logic/tokenLogic.ts
+        - src/game/platformrush/logic/obstacleLogic.ts
+        - src/game/platformrush/logic/scoring.ts
+        - src/game/platformrush/logic/starRating.ts
+        - src/game/platformrush/PlatformRushPlugin.ts
+      integration:
+        - src/game/platformrush/renderers/TokenRenderer.ts
+        - src/game/platformrush/renderers/FinishFlagRenderer.ts
+        - src/game/platformrush/renderers/ObstacleRenderer.ts
+        - src/game/platformrush/GameController.ts
+      test:
+        - tests/game/platformrush/logic/tokenLogic.test.ts
+        - tests/game/platformrush/logic/scoring.test.ts
+        - tests/game/platformrush/logic/obstacleLogic.test.ts
+    how:
+      - "Write tokenLogic.ts, obstacleLogic.ts, scoring.ts, starRating.ts as pure functions. scoring.ts: finalScore = tokensCollected * 10 * clamp(parTime / actualTime, 1.0, 2.0). starRating.ts: ratio = tokensCollected/tokensTotal, returns 1|2|3. All pure — no Pixi, no Math.random."
+      - "Add collectToken, triggerWin, triggerLoss, decrementRetry transactions to PlatformRushPlugin. triggerWin computes starsEarned via starRating, writes ECS resources. triggerLoss decrements retriesRemaining."
+      - "TokenRenderer: '🪙' emoji 40px above platform, GSAP scale+alpha pop 120 ms on collect. FinishFlagRenderer: '🏁' emoji at course end. ObstacleRenderer: Crate '📦', Fan '💨' with emoji text. No unlabeled Graphics shapes."
+    definition_of_done:
+      - "acceptance[] tests go red then green"
+      - "integration call site exists at files.integration (TokenRenderer, FinishFlagRenderer, ObstacleRenderer wired in GameController)"
+      - "every file in files.integration is exercised by at least one acceptance test"
+      - "CoS sub-walk clean: scoring (2 multiplicative dimensions: tokens × speed), core-interaction (win/loss triggered correctly), animated-dynamics (token pop animated)"
+      - "scoring CoS: test that skilled player score >= 3× beginner on same course"
+      - "no unlabeled Graphics API shapes — all entities use emoji text or tinted sprite"
+      - "bun run build + bun run test pass within 3 fix cycles"
+    risk: MEDIUM
+    risk_reason: "Multiple systems integrated simultaneously. Token overlap detection timing must be consistent with scroll speed. Scoring formula must satisfy scoring CoS (≥2 multiplicative dimensions). Verify with manual session: collect all tokens, finish at parTime, confirm 3-star outcome."
+
+  # ── BATCH 5 ─────────────────────────────────────────────────────────────────
+  - id: 5
+    name: "HUD + Visual Identity"
+    priority: P1
+    player_visible: >
+      Top 80 px of screen shows: score counter, 3-star indicators, course progress bar,
+      and pause button. Below the 80 px HUD the play area starts. The game background
+      shows a neon cityscape (parallax layers with tinted rectangles representing skyline
+      and rooftops). Platform types are distinguishable by color at a glance.
+      Asset manifest registers all required bundles (scene, fx, audio, data).
+    features:
+      - hud-renderer
+      - visual-identity
+      - asset-manifest-bundles
+    cos_covered:
+      - canvas
+      - scoring
+    ux_zones:
+      thumb_zone: [out-of-reach]
+      touch_targets: [pause-button]
+      feedback_surfaces: [score-text, star-indicators, progress-bar, pixi-canvas, game-background]
+    acceptance:
+      # hud-renderer
+      - given: "HUD is rendered at 390×844 viewport"
+        should: "HUD occupies top 80 px, does not overlap the 700 px play area, no interactive content in top 80 px except pause button"
+      - given: "a token is collected"
+        should: "score counter in HUD increments within one render frame (no delay)"
+      - given: "course progress changes"
+        should: "progress bar fill updates proportionally to runner.x / finishFlag.x"
+      - given: "stars are earned"
+        should: "star indicators in HUD reflect current starsEarned count"
+      - given: "pause button in HUD is tapped"
+        should: "boardState transitions to PAUSED, pause overlay shown"
+      # visual-identity
+      - given: "game canvas renders"
+        should: "background has at least 2 parallax layers (skyline + near-rooftops) scrolling at different speeds"
+      - given: "a screenshot of the game is shown"
+        should: "the game has visible visual identity (not generic grey) — neon theme communicated by color tints"
+      # asset-manifest-bundles
+      - given: "asset-manifest.ts is read"
+        should: "scene-platformrush, fx-platformrush, audio-sfx-platformrush, audio-music-platformrush, data-platformrush bundles are declared"
+      - given: "bundle names are validated"
+        should: "all bundle names match ^[a-z][a-z0-9-]*$ — no underscores or spaces"
+      # canvas CoS — HUD no overlap
+      - given: "HUD and play area coexist"
+        should: "at 390×844: HUD top 80px + play 700px + DOM bottom 64px = 844px exact — no overlap"
+      # dom reserved areas respected
+      - given: "canvas is initialised"
+        should: "canvas height = 844 - 64 = 780px (DOM logo bottom 64px excluded), HUD within that"
+    test_loci:
+      - describe: "HudRenderer — layout and updates"
+        file: "tests/game/platformrush/renderers/HudRenderer.test.ts"
+        cases:
+          - "HUD height == 80 px"
+          - "score updates within 1 frame of token collect"
+          - "progress bar tracks runner.x / finishFlag.x"
+          - "stars reflect starsEarned resource"
+          - "HUD + play area + DOM bottom == 844px (no overlap)"
+      - describe: "asset-manifest — bundle registration"
+        file: "tests/game/platformrush/asset-manifest.test.ts"
+        cases:
+          - "scene-platformrush bundle declared"
+          - "audio-sfx-platformrush bundle declared"
+          - "data-platformrush bundle declared"
+          - "all bundle names match ^[a-z][a-z0-9-]*$"
+    files:
+      state:
+        - src/game/asset-manifest.ts
+      integration:
+        - src/game/platformrush/renderers/HudRenderer.ts
+        - src/game/platformrush/renderers/BackgroundRenderer.ts
+        - src/game/platformrush/GameController.ts
+      test:
+        - tests/game/platformrush/renderers/HudRenderer.test.ts
+        - tests/game/platformrush/asset-manifest.test.ts
+    how:
+      - "HudRenderer: GPU Pixi overlay in top 80px layer. Elements: score Text (right-aligned), 3 star Text '⭐'/'☆', progress bar Graphics rect, pause button Text '⏸' (eventMode='static'). All positioned within y=0..80 — no element crosses y=80. Pause button hit area ≥ 44×44 px."
+      - "BackgroundRenderer: 2-layer parallax (far skyline tinted purple '🌆' at 0.3× scroll speed, near rooftops tinted cyan at 0.7×). Use emoji text + tinted rectangles for skyline silhouette — no unlabeled shapes. Neon palette: purple #8B5CF6, cyan #06B6D4, amber #F59E0B."
+      - "Update asset-manifest.ts to register all 5 required bundles (scene-platformrush, fx-platformrush, audio-sfx-platformrush, audio-music-platformrush, data-platformrush). Bundle name validation: ^[a-z][a-z0-9-]*$ — no underscores."
+    definition_of_done:
+      - "acceptance[] tests go red then green"
+      - "integration call site exists at files.integration (HudRenderer and BackgroundRenderer wired in GameController)"
+      - "every file in files.integration is exercised by at least one acceptance test"
+      - "CoS sub-walk clean: canvas (HUD no overlap, game has visual identity, pieces visually distinct), scoring (score visible in HUD)"
+      - "viewport budget check: HUD 80 + play 700 + DOM-bottom 64 = 844 — assert in HudRenderer test"
+      - "screen root elements consume reserved_top_px=0 / reserved_bottom_px=64 — Pixi canvas height = 780px"
+      - "bun run build + bun run test pass within 3 fix cycles"
+    risk: MEDIUM
+    risk_reason: "HUD layout must not overlap play area. Parallax background adds GPU draw calls. Verify: render at 390×844 and assert no HUD/board overlap; measure with HudRenderer height assertion."
+
+  # ── BATCH 6 ─────────────────────────────────────────────────────────────────
+  - id: 6
+    name: "Results + Win/Loss Sequences"
+    priority: P1
+    player_visible: >
+      Win: runner victory animation ('🏆') → scroll freezes → 'Course Complete' screen fades in
+      → stars animate staggered → Continue button. Loss: runner fall → 'Nice try!' screen fades in
+      → token roll-up counter → Try Again / District Map buttons. Results screen correctly
+      branches on win vs loss. 'Game Over' text is gone.
+    features:
+      - results-screen
+      - win-sequence
+      - loss-retry-system
+      - results-screen-language
+    cos_covered:
+      - core-interaction
+      - animated-dynamics
+      - scoring
+    ux_zones:
+      thumb_zone: [center]
+      touch_targets: [continue-button, try-again-button, district-map-button]
+      feedback_surfaces: [star-rating, score-display, tokens-collected, course-complete-jingle]
+    acceptance:
+      # results-screen
+      - given: "boardState == WON"
+        should: "ResultsScreen renders win branch (not loss branch) with star-rating display and Continue button"
+      - given: "boardState == FALLING and retriesRemaining > 0"
+        should: "ResultsScreen renders loss branch with 'Nice try!' heading and Try Again button"
+      - given: "boardState == FALLING and retriesRemaining == 0"
+        should: "ResultsScreen renders loss branch with 'Nice try!' heading, no Try Again button, only District Map button"
+      # results-screen-language
+      - given: "loss screen is shown"
+        should: "'Game Over' text does not appear anywhere in the DOM; heading reads 'Nice try!'"
+      # win-sequence
+      - given: "boardState transitions to WON"
+        should: "runner victory emoji '🏆' appears for 400 ms, then Course Complete screen fades in (300 ms cross-dissolve)"
+      - given: "Course Complete screen is displayed"
+        should: "stars animate staggered: each star appears 100 ms after previous with 150 ms pop animation"
+      - given: "all stars animated in"
+        should: "Continue button fades in (200 ms)"
+      # loss-retry-system
+      - given: "boardState transitions to FALLING"
+        should: "screen fades to dark (400 ms), then Loss Screen fades in (300 ms)"
+      - given: "Loss Screen is shown"
+        should: "token count rolls up from 0 to tokensCollected over 500 ms"
+      # animated-dynamics — all transitions animated
+      - given: "any win or loss sequence runs"
+        should: "no instant state change is visible — every step is a timed GSAP animation"
+    test_loci:
+      - describe: "ResultsScreen — win/loss branching"
+        file: "tests/game/platformrush/screens/ResultsScreen.test.ts"
+        cases:
+          - "WON state shows win branch"
+          - "FALLING state shows loss branch with 'Nice try!'"
+          - "no 'Game Over' text on loss screen"
+          - "FALLING + retriesRemaining==0 hides Try Again button"
+      - describe: "WinSequenceController — GSAP sequence order"
+        file: "tests/game/platformrush/screens/WinSequenceController.test.ts"
+        cases:
+          - "victory emoji visible for 400ms before Course Complete fade"
+          - "stars stagger 100ms apart"
+          - "Continue button visible after stars"
+      - describe: "LossSequenceController — GSAP sequence order"
+        file: "tests/game/platformrush/screens/LossSequenceController.test.ts"
+        cases:
+          - "fade to dark 400ms before Loss Screen fade-in"
+          - "token roll-up 500ms"
+          - "Try Again hidden when retriesRemaining==0"
+    files:
+      state:
+        - src/game/platformrush/PlatformRushPlugin.ts
+      integration:
+        - src/game/screens/ResultsScreen.tsx
+        - src/game/platformrush/screens/WinSequenceController.ts
+        - src/game/platformrush/screens/LossSequenceController.ts
+      test:
+        - tests/game/platformrush/screens/ResultsScreen.test.ts
+        - tests/game/platformrush/screens/WinSequenceController.test.ts
+        - tests/game/platformrush/screens/LossSequenceController.test.ts
+    how:
+      - "Update ResultsScreen.tsx: replace generic 'Game Over' heading. Branch on boardState signal: WON → win branch (stars, tokens, Continue), FALLING → loss branch ('Nice try!', tokens, Try Again if retriesRemaining>0, District Map). Buttons in bottom thumb zone (bottom 200px of screen)."
+      - "WinSequenceController.ts: pure GSAP sequence — victory emoji 400ms → cross-dissolve 300ms → staggered stars (150ms each, 100ms apart) → Continue fade 200ms. Returns a Promise<void> that resolves when Continue is tappable. All GSAP, no RAF."
+      - "LossSequenceController.ts: fade-to-dark 400ms → Loss Screen fade-in 300ms → token roll-up counter GSAP 500ms. Wire Try Again to decrementRetry + restart; District Map to goto('start')."
+    definition_of_done:
+      - "acceptance[] tests go red then green"
+      - "integration call site exists at files.integration (ResultsScreen, WinSequenceController, LossSequenceController wired through GameController goto signal)"
+      - "every file in files.integration is exercised by at least one acceptance test"
+      - "CoS sub-walk clean: animated-dynamics (all transitions animated), core-interaction (retry button restarts from last safe platform), scoring (stars and score visible on results)"
+      - "touch targets ≥ 44 px: Continue, Try Again, District Map buttons verified ≥ 44×44 px"
+      - "'Game Over' text absent from loss screen — grep ResultsScreen.tsx for 'Game Over' returns 0 matches"
+      - "bun run build + bun run test pass within 3 fix cycles"
+    risk: MEDIUM
+    risk_reason: "GSAP sequence timing must be exact — wrong order produces confusing player experience. Language collision (Game Over → Nice try!) must be fully replaced. Verify: grep codebase for 'Game Over' returns zero results in player-facing files."
+
+  # ── BATCH 7 ─────────────────────────────────────────────────────────────────
+  - id: 7
+    name: "Start Screen + Course Interstitial"
+    priority: P1
+    player_visible: >
+      Title screen shows 'PlatformRush' logo text, city skyline background, and Play button
+      in thumb zone. Before each course, a brief interstitial shows district name, course number,
+      and descriptor (e.g. 'District 1 · Course 1 — Neon Rooftops'). Auto-advances after 1.5 s
+      or tap to skip.
+    features:
+      - start-title-screen
+      - course-start-interstitial
+    cos_covered:
+      - canvas
+    ux_zones:
+      thumb_zone: [center]
+      touch_targets: [play-button, tap-to-skip]
+      feedback_surfaces: [title-logo, play-button, city-skyline-bg, district-name, course-number]
+    acceptance:
+      # start-title-screen
+      - given: "loading completes and screen transitions to 'start'"
+        should: "title text 'PlatformRush' is visible, city skyline background is rendered, Play button is in bottom thumb zone (≥ bottom 30% of screen)"
+      - given: "Play button is tapped"
+        should: "asset loading initiates and unlockAudio() is called before any audio plays"
+      # course-start-interstitial
+      - given: "a course is about to start"
+        should: "interstitial shows district name, course number, and descriptor in center of screen"
+      - given: "interstitial is shown for 1.5 s with no tap"
+        should: "it auto-advances to gameplay"
+      - given: "player taps during interstitial"
+        should: "interstitial dismisses immediately and gameplay begins"
+      # canvas CoS — title visual identity
+      - given: "start screen is displayed"
+        should: "screen has PlatformRush visual identity (not generic scaffold); title text ≥ 32 px"
+    test_loci:
+      - describe: "StartScreen — branding and audio unlock"
+        file: "tests/game/platformrush/screens/StartScreen.test.ts"
+        cases:
+          - "title text 'PlatformRush' visible"
+          - "Play button in bottom 30% of screen"
+          - "unlockAudio called on Play tap"
+      - describe: "CourseStartInterstitial — timing and skip"
+        file: "tests/game/platformrush/screens/CourseStartInterstitial.test.ts"
+        cases:
+          - "auto-advances after 1.5s"
+          - "tap-to-skip advances immediately"
+          - "shows district name and course number"
+    files:
+      state: []
+      integration:
+        - src/game/screens/StartScreen.tsx
+        - src/game/platformrush/screens/CourseStartInterstitial.tsx
+      test:
+        - tests/game/platformrush/screens/StartScreen.test.ts
+        - tests/game/platformrush/screens/CourseStartInterstitial.test.ts
+    how:
+      - "Update StartScreen.tsx: add 'PlatformRush' heading (≥ 32 px, top third), city skyline background (same tinted palette as BackgroundRenderer), Play button bottom-center (≥ 44×44 px, bottom 30% of screen). unlockAudio() wiring already present — verify it fires on Play tap."
+      - "CourseStartInterstitial.tsx: SolidJS DOM overlay rendered over game canvas before GPU init. Shows district+course descriptor string. GSAP fade-in 200ms, auto-dismiss after 1.5s via GSAP delayedCall, tap-to-skip via pointerup. Positioned center of viewport."
+    definition_of_done:
+      - "acceptance[] tests go red then green"
+      - "integration call site exists at files.integration (CourseStartInterstitial shown from GameController before course start)"
+      - "every file in files.integration is exercised by at least one acceptance test"
+      - "CoS sub-walk clean: canvas (title has visual identity, play button readable)"
+      - "touch targets ≥ 44 px: Play button and tap-to-skip area ≥ 44×44 px"
+      - "bun run build + bun run test pass within 3 fix cycles"
+    risk: MEDIUM
+    risk_reason: "unlockAudio() must fire before any audio — wrong order causes silent audio on iOS. Verify: PlayButton tap handler sequence — unlockAudio() before any audio call."
+
+  # ── BATCH 8 ─────────────────────────────────────────────────────────────────
+  - id: 8
+    name: "Progression Screens — District Map + District Complete"
+    priority: P2
+    player_visible: >
+      After reaching the start screen, a district map overlay shows course nodes (locked/unlocked/
+      complete) with star counts. Tapping an unlocked course node starts that course. After completing
+      all 8 courses in a district, a District Complete overlay shows total stars and a Next District
+      button.
+    features:
+      - district-map-screen
+      - district-complete-screen
+    cos_covered: []
+    ux_zones:
+      thumb_zone: [center]
+      touch_targets: [course-nodes, next-district-button]
+      feedback_surfaces: [district-map, course-node-stars, lock-state, district-name, total-stars]
+    acceptance:
+      # district-map-screen
+      - given: "player navigates to start screen after first play"
+        should: "DistrictMapOverlay is visible, showing 3 districts with course nodes"
+      - given: "only course 0 has been completed"
+        should: "course 0 shows star count, course 1 is unlocked, courses 2–7 show lock icon '🔒'"
+      - given: "player taps an unlocked course node"
+        should: "CourseStartInterstitial fires for that course then gameplay begins"
+      - given: "player taps a locked node"
+        should: "node shakes (rejection animation) — no navigation fires"
+      # district-complete-screen
+      - given: "all 8 courses in a district are completed"
+        should: "DistrictCompleteOverlay shows district name, total stars collected, Next District button"
+      - given: "Next District button is tapped"
+        should: "next district's course 0 unlocks and district map scrolls to it"
+      # in-memory only — no persistence
+      - given: "page is reloaded"
+        should: "unlock state resets to default (only district-0/course-0 unlocked)"
+    test_loci:
+      - describe: "DistrictMapOverlay — lock/unlock state"
+        file: "tests/game/platformrush/screens/DistrictMapOverlay.test.ts"
+        cases:
+          - "initial state: only district-0 course-0 unlocked"
+          - "locked node tap plays rejection animation"
+          - "unlocked node tap initiates course start"
+          - "completed node shows star count"
+      - describe: "DistrictCompleteOverlay — trigger and navigation"
+        file: "tests/game/platformrush/screens/DistrictCompleteOverlay.test.ts"
+        cases:
+          - "shown after all 8 courses complete"
+          - "Next District unlocks next district course-0"
+    files:
+      state: []
+      integration:
+        - src/game/screens/StartScreen.tsx
+        - src/game/platformrush/screens/DistrictMapOverlay.tsx
+        - src/game/platformrush/screens/DistrictCompleteOverlay.tsx
+      test:
+        - tests/game/platformrush/screens/DistrictMapOverlay.test.ts
+        - tests/game/platformrush/screens/DistrictCompleteOverlay.test.ts
+    how:
+      - "DistrictMapOverlay.tsx: SolidJS DOM overlay on start screen. Read district/course unlock state from in-memory signal (not ECS — complex nested object per SolidJS patterns for state that survives game destroy). Render 3 district rows × 8 course nodes. Course node: 48×48 px button, emoji '⭐'/'🔒'/'○' per state. Locked tap → GSAP horizontal shake 200ms."
+      - "DistrictCompleteOverlay.tsx: shown after all 8 courses complete. Renders over results screen as a branch. Shows total stars, Next District button. Next District dispatches unlock to the in-memory progression store."
+    definition_of_done:
+      - "acceptance[] tests go red then green"
+      - "integration call site exists at files.integration (DistrictMapOverlay shown from StartScreen, DistrictCompleteOverlay shown from ResultsScreen)"
+      - "every file in files.integration is exercised by at least one acceptance test"
+      - "touch targets ≥ 44 px: course nodes ≥ 48×48 px, Next District button ≥ 44×44 px"
+      - "no screen ID violations: district map is overlay on 'start', district complete is branch of 'results' — no new top-level screen IDs"
+      - "bun run build + bun run test pass within 3 fix cycles"
+    risk: MEDIUM
+    risk_reason: "Progression state lives in SolidJS signal (complex nested object, survives game destroy). In-memory only — resets on reload by design. Verify lock/unlock logic with unit tests using deterministic state fixtures."
+
+warnings:
+  # Collision resolutions (required for every collision: entry in gdd-analysis.yml.warnings[])
+  - "collision-resolved:screen-id-district-map — skill-wins (scaffold-state § valid-screen-ids: loading|start|game|results); gdd-ask='district-map as separate screen' dropped. District map implemented as SolidJS overlay on 'start' screen (DistrictMapOverlay.tsx)."
+  - "collision-resolved:screen-id-interstitial — skill-wins (scaffold-state § valid-screen-ids: loading|start|game|results); gdd-ask='course-start-interstitial as separate screen' dropped. Interstitial implemented as SolidJS DOM overlay within game lifecycle before GPU init."
+  - "collision-resolved:screen-id-district-complete — skill-wins (scaffold-state § valid-screen-ids: loading|start|game|results); gdd-ask='district-complete as separate screen' dropped. District complete implemented as branch within 'results' screen ID (DistrictCompleteOverlay.tsx shown from ResultsScreen)."
+  - "collision-resolved:results-screen-copy — skill-wins (soft, allow-gdd-overrides=false); however guardrail #15 (critical, non-flippable) independently mandates removing all scaffold placeholder text. GDD's 'Nice try!' copy adopted as the G15-compliant replacement for scaffold placeholder 'Game Over'."
+  - "collision-resolved:game-controller-mode — skill-wins (guardrail #15: no stubs in shipped code — critical); gdd-ask=pixi-gpu-game honored as the G15-compliant replacement for DOM-mode stub. DOM stub replaced with full Pixi GameController."
+  - "collision-resolved:scoring-dimensions — skill-wins (scoring-CoS requires ≥2 multiplicative dimensions at core pass, soft rule, allow-gdd-overrides=false); gdd-ask=flat-additive (+10/token) recast. Added speedMultiplier = clamp(parTime/actualTime, 1.0, 2.0) as second multiplicative dimension."
+  # Self-audit findings
+  - "self-audit:src-core-readonly — PASS. No batches[].files.* entry is under src/core/."
+  - "self-audit:no-stubs-placeholders — PASS. No resolved_questions_scalars value contains placeholder/stub/TBD. Completeness gaps correctly listed under completeness_gaps[]."
+  - "self-audit:slug-substitution — PASS. game_slug=platformrush. All <game-root> tokens substituted to src/game/platformrush. No literal <game-root> or 'mygame' in any files.* entry."
+  - "self-audit:collision-resolution-coverage — PASS. All 6 collision: entries have matching collision-resolved: entries above."
+  - "self-audit:integration-file-coverage — PASS. Every file in batches[].files.integration is referenced by at least one acceptance[].should in the same batch."
+  # Out-of-pass CoS
+  - "out-of-pass-cos:skill-curve — feature level-generation-system has cos_required=[core-interaction, skill-curve]. skill-curve is gated at meta pass (conditions/index.md). Deferred to pass-meta. core-interaction requirement handled fully in batch 3."

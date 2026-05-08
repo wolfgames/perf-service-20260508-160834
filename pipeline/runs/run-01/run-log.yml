@@ -1,0 +1,18 @@
+run: "01"
+pipeline_version: "0.3.13"
+pass: core
+started: "2026-05-08T16:16:20Z"
+status: in-progress
+config:
+  gdd_gate: auto-handoff
+  think_only: false
+  trace: false
+  skip_groups: []
+  allow_skip_pass: false
+phases:
+  - id: pass-gate
+    status: complete
+    summary: "core pass requires no predecessor check; gate passed (core-pass-no-check)"
+  - id: prime
+    status: complete
+    summary: "PlatformRush on pixi+solidjs+gsap+bun stack; game controller is stub; game dir is greenfield; buildCmd=bun run build; testCmd=bun run test"

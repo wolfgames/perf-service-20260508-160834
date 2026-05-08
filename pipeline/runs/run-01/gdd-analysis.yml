@@ -1,0 +1,814 @@
+# gdd-analysis.yml — Structured feature delta
+# Written by phase 20 (analyze). Read by plan, implement, player-flow, stabilize.
+
+game: "PlatformRush"
+counts:
+  exists: 5
+  partial: 4
+  new: 19
+  conflict: 1
+  content_gap: 2
+conflict_breakdown:
+  reuse: 0
+  adapt: 1
+  replace: 1
+high_risk: 4
+medium_risk: 14
+open_questions: 3
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FEATURES
+# ─────────────────────────────────────────────────────────────────────────────
+features:
+
+  # ── EXISTS ──────────────────────────────────────────────────────────────────
+
+  - id: loading-screen
+    name: "Loading Screen — asset preload + progress"
+    status: exists
+    lifecycle_phase: BOOT
+    risk: LOW
+    complexity: low
+    cos_required: []
+    ux_zones:
+      thumb_zone: center
+      touch_targets: [retry-button]
+      feedback_surfaces: [progress-bar, error-state]
+    affected_files:
+      - src/game/screens/LoadingScreen.tsx
+    dependencies: []
+    notes: "Functional: loads boot/theme bundles, shows progress bar, auto-transitions. No game-specific changes needed for core pass."
+
+  - id: audio-system
+    name: "Audio System — Howler / BaseAudioManager infrastructure"
+    status: exists
+    lifecycle_phase: BOOT
+    risk: LOW
+    complexity: low
+    cos_required: []
+    affected_files: []
+    dependencies: []
+    notes: "Infrastructure present. No game audio content yet — audio bundles listed under asset-manifest-bundles feature."
+
+  - id: pause-overlay
+    name: "Pause Overlay"
+    status: exists
+    lifecycle_phase: PLAY
+    risk: LOW
+    complexity: low
+    cos_required: []
+    ux_zones:
+      thumb_zone: out-of-reach
+      touch_targets: [pause-button]
+      feedback_surfaces: [pause-overlay]
+    affected_files:
+      - src/game/screens/GameScreen.tsx
+    dependencies: []
+    notes: "Scaffold-level pause overlay present. GameScreen.tsx already wires PauseOverlay. Covers PAUSED board state from GDD."
+
+  - id: analytics-error-tracking
+    name: "Analytics and Error Tracking (PostHog, Sentry)"
+    status: exists
+    lifecycle_phase: BOOT
+    risk: LOW
+    complexity: low
+    cos_required: []
+    affected_files:
+      - src/game/setup/tracking.ts
+    dependencies: []
+    notes: "Wiring present. No game-specific events needed for core pass."
+
+  - id: screen-wiring
+    name: "Screen routing infrastructure (loading → start → game → results)"
+    status: exists
+    lifecycle_phase: BOOT
+    risk: LOW
+    complexity: low
+    cos_required: []
+    affected_files:
+      - src/game/index.ts
+      - src/game/screens/index.ts
+    dependencies: []
+    notes: "Four-screen IDs exist and are wired. GDD's district-map and interstitial screens collapse into this scaffold via overlays/signals (per lifecycle.md). No new screen IDs required."
+
+  # ── PARTIAL ──────────────────────────────────────────────────────────────────
+
+  - id: game-state-signals
+    name: "Global game state signals (score, level)"
+    status: partial
+    lifecycle_phase: PLAY
+    risk: MEDIUM
+    complexity: med
+    cos_required: [scoring]
+    ux_zones:
+      thumb_zone: out-of-reach
+      touch_targets: []
+      feedback_surfaces: [hud]
+    affected_files:
+      - src/game/state.ts
+      - <game-root>/state/PlatformRushPlugin.ts
+    dependencies: []
+    ux:
+      discovery: "Score and stars visible in HUD throughout play"
+      feedback: "Score increments on token collection; stars update at course complete"
+      onboarding: "Score shown from first frame of gameplay"
+    notes: "scaffold has score+level signals only. GDD requires: districtIndex, courseIndex, starsEarned, tokensCollected, tokensTotal, retriesRemaining. Must migrate to ECS resource + bridgeEcsToSignals pattern. Signals remain as DOM bridge for results/HUD screens."
+
+  - id: start-title-screen
+    name: "Start / Title Screen"
+    status: partial
+    lifecycle_phase: TITLE
+    risk: MEDIUM
+    complexity: med
+    cos_required: [canvas]
+    ux_zones:
+      thumb_zone: center
+      touch_targets: [play-button]
+      feedback_surfaces: [title-logo, play-button, city-skyline-bg]
+    affected_files:
+      - src/game/screens/StartScreen.tsx
+      - src/game/mygame/screens/startView.ts
+    dependencies: [asset-manifest-bundles]
+    ux:
+      discovery: "Logo + city skyline immediately communicates brand; Play button bottom-center in thumb zone"
+      feedback: "Tap Play triggers asset load + GPU init with loading indicator"
+      onboarding: "No tutorial needed on title screen; game is discovered through first course"
+    notes: "Scaffold start screen has Play button and asset-loading wiring. Missing: game logo, city skyline background art, PlatformRush branding. Content-gap resolved here as partial (infrastructure correct, content missing). unlockAudio() is already wired in StartScreen.tsx on tap."
+
+  - id: results-screen
+    name: "Results Screen — win/loss branches"
+    status: partial
+    lifecycle_phase: OUTCOME
+    risk: MEDIUM
+    complexity: med
+    cos_required: [core-interaction, scoring]
+    ux_zones:
+      thumb_zone: center
+      touch_targets: [continue-button, try-again-button, district-map-button, next-district-button]
+      feedback_surfaces: [star-rating, score-display, tokens-collected, district-complete-art]
+    affected_files:
+      - src/game/screens/ResultsScreen.tsx
+    dependencies: [star-rating-system, game-state-signals]
+    ux:
+      discovery: "Outcome screen auto-transitions from gameplay; player immediately sees result"
+      feedback: "Stars animate staggered (150 ms each), roll-up counter for tokens (500 ms), 'Course Complete' jingle"
+      onboarding: "Star thresholds communicated by showing stars earned vs 3 total"
+    notes: >
+      Scaffold ResultsScreen shows generic 'Game Over' + score + Play Again/Main Menu buttons.
+      GDD requires two branches:
+        WIN: star-rating (animated), tokens count, Continue button → district map
+        LOSS: 'Nice try!' message, tokens collected, Try Again button (if retry available) + District Map button
+      GDD explicitly forbids 'Game Over' language (loss screen says 'Nice try!').
+      Win sequence: overlay fade → title → stars staggered → score → Continue (all GSAP).
+      Loss sequence: fade to dark → Loss Screen fade in → roll-up counter → buttons.
+      Screen ID stays 'results'; win/loss branch determined by signal. interstitial-screen wrapper
+      handles district-map overlay within lifecycle.md scaffold.
+
+  - id: asset-manifest-bundles
+    name: "Asset Manifest — game bundles (scene, fx, audio, data)"
+    status: partial
+    lifecycle_phase: BOOT
+    risk: MEDIUM
+    complexity: med
+    cos_required: [canvas]
+    affected_files:
+      - src/game/asset-manifest.ts
+    dependencies: []
+    notes: >
+      Only theme-branding bundle exists. GDD requires:
+        scene-platformrush: character sprite atlas, platform tiles, obstacle sprites, finish flag
+        fx-platformrush: wind cone VFX, token collect particle, bounce launch effect, crumble dust
+        audio-sfx-platformrush: jump, land, token-collect, crumble, bounce, fan-wind, win-jingle, fall-thud
+        audio-music-platformrush: background loop per district
+        data-platformrush: hand-crafted course JSON fixtures
+      Bundle names must match [a-z][a-z0-9-]* — verified compliant.
+
+  # ── CONTENT-GAP ─────────────────────────────────────────────────────────────
+
+  - id: game-controller-stub
+    name: "Game Controller — DOM-mode placeholder"
+    status: content-gap
+    lifecycle_phase: PLAY
+    risk: HIGH
+    complexity: high
+    cos_required: [core-interaction, canvas, animated-dynamics, scoring]
+    ux_zones:
+      thumb_zone: center
+      touch_targets: [full-lower-screen-jump-zone]
+      feedback_surfaces: [pixi-canvas, hud]
+    affected_files:
+      - src/game/mygame/screens/gameController.ts
+      - <game-root>/GameController.ts
+    dependencies:
+      - runner-entity
+      - physics-engine
+      - tap-hold-input
+      - platform-entities
+      - obstacle-entities
+      - token-entity
+      - finish-flag-entity
+      - ecs-plugin
+      - hud-renderer
+    ux:
+      discovery: "Player sees scrolling course immediately on PLAY screen; runner moves right automatically"
+      feedback: "Jump arc responds within 100 ms of pointer-down; runner sprite changes animation state"
+      onboarding: "Course 1 has no obstacles — player can discover jump via safe exploration"
+    notes: >
+      Current gameController.ts creates a DOM div with 'Gameplay Screen' text — a stub.
+      This is the critical integration point for the entire game. Must be replaced with Pixi-mode
+      GameController that owns runner, platforms, physics, input, ECS, and HUD.
+      Content exists as infrastructure/plumbing but visual identity doesn't match GDD intent.
+      HIGH risk: touches renderer, state, lifecycle, input, and ECS simultaneously.
+
+  - id: visual-identity
+    name: "Visual identity — near-future neon city theme"
+    status: content-gap
+    lifecycle_phase: PLAY
+    risk: MEDIUM
+    complexity: med
+    cos_required: [canvas]
+    ux_zones:
+      thumb_zone: center
+      touch_targets: []
+      feedback_surfaces: [pixi-canvas, game-background, platform-sprites]
+    affected_files:
+      - <game-root>/renderers/BackgroundRenderer.ts
+    dependencies: [asset-manifest-bundles]
+    ux:
+      discovery: "Neon-lit cityscape immediately visible behind platforms; distinct from generic scaffold"
+      feedback: "Parallax scrolling background moves at different speed than foreground"
+      onboarding: "Visual language teaches the world via first course exposure"
+    notes: >
+      GDD specifies: near-future city of stacked rooftops, sky bridges, neon-lit terraces.
+      Setting: courier moving left-to-right across skyline at dusk.
+      Platform cell visual: 64x24 px concrete, crumbling (orange), bouncy (green spring-coil).
+      Without sprite assets (day-1 core pass): use colored Graphics API shapes with tint — per
+      asset-fallback priority ordering (soft rule) this is correct fallback for core pass.
+      Theme is visually present if platform types are distinguishable by color at a glance.
+
+  # ── NEW ──────────────────────────────────────────────────────────────────────
+
+  - id: ecs-plugin
+    name: "ECS Plugin — PlatformRushPlugin"
+    status: new
+    lifecycle_phase: PLAY
+    risk: HIGH
+    complexity: high
+    cos_required: [core-interaction, animated-dynamics, scoring]
+    affected_files:
+      - <game-root>/PlatformRushPlugin.ts
+      - <game-root>/state/types.ts
+    dependencies: []
+    ux:
+      discovery: "N/A — internal state infrastructure"
+      feedback: "N/A"
+      onboarding: "N/A"
+    notes: >
+      ECS is source of truth per ecs-state.mdc. Plugin must define:
+        resources: score, starsEarned, tokensCollected, tokensTotal, retriesRemaining,
+                   districtIndex, courseIndex, boardState (IDLE|AIRBORNE|LANDING|BOUNCING|WON|FALLING|PAUSED),
+                   runnerX, runnerY, runnerVY (vertical velocity), scrollOffset
+        archetypes: Platform {x, y, width, type, crumbleTimer?}, Obstacle {x, y, kind},
+                    Token {x, y, collected}
+        transactions: replaceLevel, collectToken, addScore, setBoard, decrementRetry, triggerWin, triggerLoss
+        actions: executeTap, executeHoldRelease, tickPhysics (returns animation events, no Pixi imports)
+      Property order: extends → services → components → resources → archetypes → computed → transactions → actions → systems
+
+  - id: runner-entity
+    name: "Runner entity — sprite + animation states"
+    status: new
+    lifecycle_phase: PLAY
+    risk: MEDIUM
+    complexity: med
+    cos_required: [core-interaction, animated-dynamics, canvas]
+    ux_zones:
+      thumb_zone: center
+      touch_targets: []
+      feedback_surfaces: [pixi-canvas]
+    affected_files:
+      - <game-root>/renderers/RunnerRenderer.ts
+    dependencies: [ecs-plugin, asset-manifest-bundles]
+    ux:
+      discovery: "Runner is the leftmost moving element — immediately visible"
+      feedback: "Sprite changes to jump/fall/victory/fall-death animation states within 100 ms of trigger"
+      onboarding: "Run animation plays from first frame; no instruction needed"
+    notes: >
+      Runner sits at ~25% of visible width (camera tracks runner horizontally).
+      Animation states: run, jump, fall, victory (400 ms), fall-death.
+      Visual: small courier character sprite, facing right. 48x48+ px min visible size (canvas CoS).
+      For core pass without final assets: colored rectangle with state-based tint is acceptable fallback.
+
+  - id: physics-engine
+    name: "Physics engine — gravity, jump arc, scroll"
+    status: new
+    lifecycle_phase: PLAY
+    risk: HIGH
+    complexity: high
+    cos_required: [core-interaction, animated-dynamics]
+    affected_files:
+      - <game-root>/logic/physics.ts
+      - <game-root>/PlatformRushPlugin.ts
+    dependencies: [ecs-plugin]
+    ux:
+      discovery: "Runner falls without support; jump arc is physically believable"
+      feedback: "Jump arc responds immediately; gravity provides weight/anticipation"
+      onboarding: "First platform is wide enough to practice landing"
+    notes: >
+      Pure logic file — no Pixi imports per ecs-state.mdc action purity rules.
+      Rules from GDD:
+        gravity: 9.8 × 64 px/s² constant every frame
+        short-hop: apex 96 px, arc 400 ms (200 up/200 down)
+        long-leap: apex scales 96→160 px, duration 400→600 ms (hold 150→500 ms)
+        hold > 500 ms clamped to 500 ms behavior
+        no double-jump (AIRBORNE state blocks input)
+        horizontal scroll speed: constant 180 px/s
+      RNG state: closure variable (not ECS), per ecs-state.mdc.
+      Returns animation-event objects — controller animates via GSAP.
+
+  - id: tap-hold-input
+    name: "Tap / tap-and-hold input system"
+    status: new
+    lifecycle_phase: PLAY
+    risk: MEDIUM
+    complexity: med
+    cos_required: [core-interaction]
+    ux_zones:
+      thumb_zone: center
+      touch_targets: [full-lower-screen-jump-zone]
+      feedback_surfaces: [pixi-canvas, runner-sprite]
+    affected_files:
+      - <game-root>/input/InputHandler.ts
+    dependencies: [ecs-plugin, physics-engine]
+    ux:
+      discovery: "Tap anywhere on lower screen half triggers jump — large target, natural placement"
+      feedback: "Runner begins jump animation within 100 ms of pointer-down; hold indicator (radial fill) shows charge time per UX guidelines tap-and-hold rule"
+      onboarding: "Course 1 gap is narrow (1 cell) — short hop suffices; player discovers hold via wider gaps"
+    notes: >
+      Input type: pointer events (pointerdown/pointerup) — not mouse-only or touch-only.
+      Tap ≤ 150 ms → short hop. Hold 150-500 ms → scaled leap. Hold > 500 ms → clamped.
+      Jump zone: full lower half of screen (≥ 44x44 pt target — UX floor maintained).
+      touch-action: none on game container.
+      Input blocked during AIRBORNE, LANDING, BOUNCING, WON, FALLING, PAUSED states.
+      Pointer sequence: pointerdown → record timestamp → on pointerup → calc hold duration → dispatch jump action.
+      Per UX guidelines tap-and-hold rule: circular radial fill shows charge time.
+
+  - id: platform-entities
+    name: "Platform entities — Normal, Crumbling, Bouncy"
+    status: new
+    lifecycle_phase: PLAY
+    risk: MEDIUM
+    complexity: med
+    cos_required: [core-interaction, animated-dynamics, canvas]
+    ux_zones:
+      thumb_zone: center
+      touch_targets: []
+      feedback_surfaces: [pixi-canvas]
+    affected_files:
+      - <game-root>/renderers/PlatformRenderer.ts
+      - <game-root>/logic/platformLogic.ts
+    dependencies: [ecs-plugin, asset-manifest-bundles]
+    ux:
+      discovery: "Platform types visually distinct by color/texture at a glance (canvas CoS)"
+      feedback: "Crumbling: 300 ms crumble animation on contact. Bouncy: 150 ms launch animation."
+      onboarding: "District 1 courses 1-2 hand-crafted to introduce each type safely"
+    notes: >
+      Platform cell: 64x24 px visual. Types:
+        Normal: solid grey concrete slab — static
+        Crumbling: fractured orange slab — supports 0.5 s then 300 ms crumble animation → disappears
+        Bouncy: green spring-coil slab — launches at 1.8x standard jump apex (150 ms); capped at 1.8x
+      No Crumbling or Bouncy platforms in first 2 courses of each district (hand-crafted).
+      No two Crumbling platforms in a row (generation constraint).
+      Animation events: crumble-start, crumble-complete, bounce-launch emitted to event queue.
+
+  - id: obstacle-entities
+    name: "Obstacle entities — Crate and Fan"
+    status: new
+    lifecycle_phase: PLAY
+    risk: MEDIUM
+    complexity: med
+    cos_required: [core-interaction, animated-dynamics]
+    ux_zones:
+      thumb_zone: center
+      touch_targets: []
+      feedback_surfaces: [pixi-canvas]
+    affected_files:
+      - <game-root>/renderers/ObstacleRenderer.ts
+      - <game-root>/logic/obstacleLogic.ts
+    dependencies: [ecs-plugin, platform-entities]
+    ux:
+      discovery: "Crate visually blocks path; Fan has visible wind-cone VFX overlay"
+      feedback: "Crate collision: knockback + fall-death animation. Fan: wind cone visual + momentum reduction (player perceives resistance)"
+      onboarding: "No obstacles on first 2 platforms of any course (safe start zone)"
+    notes: >
+      Crate: static wooden crate on platform — collision → fall-death. Placed at right 25% of platform.
+      Fan: wind cone 96x64 px — reduces horizontal momentum 30% while inside. Collision volume = visual.
+      Fan wind-cone VFX: translucent fx-overlay (fx-platformrush bundle). Core pass: semi-transparent
+      colored rect is acceptable fallback if atlas not yet available.
+      Obstacles only on Normal platforms (not Crumbling or Bouncy per generation rules).
+
+  - id: token-entity
+    name: "Speed Token entity — collect and score"
+    status: new
+    lifecycle_phase: PLAY
+    risk: LOW
+    complexity: low
+    cos_required: [core-interaction, animated-dynamics, scoring]
+    ux_zones:
+      thumb_zone: center
+      touch_targets: []
+      feedback_surfaces: [pixi-canvas, hud]
+    affected_files:
+      - <game-root>/renderers/TokenRenderer.ts
+      - <game-root>/logic/tokenLogic.ts
+    dependencies: [ecs-plugin, platform-entities]
+    ux:
+      discovery: "Glowing yellow coin floating 40 px above platforms — high visibility"
+      feedback: "120 ms pop animation on collection, +10 score display update, brief particle burst"
+      onboarding: "Tokens present from course 1; natural to run over them"
+    notes: >
+      Visual: glowing yellow coin, 40 px above platform surface. Hitbox: 32x32 px.
+      On overlap: collect, +10 score, 120 ms pop animation. Never over gaps (generation constraint).
+      tokenDensity controls fraction of eligible platforms with tokens (0.3–0.7 per difficulty).
+
+  - id: finish-flag-entity
+    name: "Finish Flag entity — course complete trigger"
+    status: new
+    lifecycle_phase: PLAY
+    risk: LOW
+    complexity: low
+    cos_required: [core-interaction]
+    ux_zones:
+      thumb_zone: center
+      touch_targets: []
+      feedback_surfaces: [pixi-canvas]
+    affected_files:
+      - <game-root>/renderers/FinishFlagRenderer.ts
+    dependencies: [ecs-plugin, platform-entities]
+    ux:
+      discovery: "Chequered flag pole at far-right end — recognizable goal marker"
+      feedback: "Runner reaches flag → win sequence triggers (scroll stops, victory animation)"
+      onboarding: "Always on Normal platform ≥ 3 cells wide — safe guaranteed landing"
+    notes: >
+      Chequered flag pole at far-right end of course. Always on Normal platform ≥ 3 cells.
+      Win condition: Runner.x >= FinishFlag.x AND Runner.isGrounded → state = WON.
+
+  - id: level-generation-system
+    name: "Level generation — seeded procedural algorithm"
+    status: new
+    lifecycle_phase: PLAY
+    risk: HIGH
+    complexity: high
+    cos_required: [core-interaction, skill-curve]
+    affected_files:
+      - <game-root>/logic/levelGenerator.ts
+      - <game-root>/logic/rng.ts
+      - <game-root>/logic/solvabilityValidator.ts
+    dependencies: [ecs-plugin]
+    ux:
+      discovery: "Each course feels fresh via procedural variation; same seed = same course (benchmark repeatability)"
+      feedback: "N/A — pure logic"
+      onboarding: "Courses 1-2 per district are hand-crafted for safe introduction"
+    notes: >
+      Pure logic — no Math.random(), no Pixi imports, per ecs-state.mdc action purity.
+      RNG: deterministic LCG: next = (seed × 1664525 + 1013904223) mod 2^32
+      Seed: (districtIndex * 1000 + courseIndex) * 48271
+      6-step algorithm: seed → difficulty params → platform sequence → obstacle placement
+        → token placement → solvability validation
+      Difficulty bands:
+        L0-7: gapRangeMax=2, obstacleChance=0.05, crumblingChance=0, bouncyChance=0
+        L8-15: gapRangeMax=3, obstacleChance=0.15, crumblingChance=0.1, bouncyChance=0.05
+        L16+: gapRangeMax=4, obstacleChance=0.25, crumblingChance=0.2, bouncyChance=0.1
+      Rejection conditions: GAP_TOO_WIDE, TOO_MANY_CONSECUTIVE_CRUMBLING, COURSE_TOO_SHORT
+      Retry: up to 10 attempts (seed+1 each retry). Fallback: hand-crafted JSON fixture.
+      skill-curve CoS: gated at meta pass — flag status: deferred-to-pass-meta for full difficulty tuning.
+      core-interaction is required now: generation must produce a solvable, interactive course.
+
+  - id: hand-crafted-levels
+    name: "Hand-crafted level data — JSON fixtures + loader"
+    status: new
+    lifecycle_phase: PLAY
+    risk: LOW
+    complexity: low
+    cos_required: [core-interaction]
+    affected_files:
+      - <game-root>/data/courses/district-0/course-0.json
+      - <game-root>/data/courses/district-0/course-1.json
+      - <game-root>/data/courses/district-0/fallback.json
+      - <game-root>/logic/courseLoader.ts
+    dependencies: [level-generation-system]
+    ux:
+      discovery: "N/A — data files"
+      feedback: "N/A"
+      onboarding: "Course 0 of district 0 = safest possible introduction"
+    notes: >
+      Hand-crafted for courses 0-1 per district + fallback per district.
+      At launch: 3 districts × (2 hand-crafted + 1 fallback) = 9 fixture files minimum.
+      JSON schema owns by developer; data files owned by game designer.
+      data-platformrush bundle loads these. Loader reads from ECS/config, no Math.random().
+
+  - id: board-states
+    name: "Board state machine (IDLE/AIRBORNE/LANDING/BOUNCING/WON/FALLING/PAUSED)"
+    status: new
+    lifecycle_phase: PLAY
+    risk: MEDIUM
+    complexity: med
+    cos_required: [core-interaction, animated-dynamics]
+    affected_files:
+      - <game-root>/PlatformRushPlugin.ts
+      - <game-root>/logic/stateTransitions.ts
+    dependencies: [ecs-plugin]
+    ux:
+      discovery: "N/A — internal"
+      feedback: "State transitions are always animated (no instant jumps)"
+      onboarding: "N/A"
+    notes: >
+      States per GDD: IDLE, AIRBORNE, LANDING (≤2 frames), BOUNCING (150 ms), WON, FALLING, PAUSED.
+      Input only allowed in IDLE (tap/hold) and PAUSED (unpause button only).
+      All state transitions that mutate visible platform state are animated — no instant state change.
+      Part of ECS plugin; transitions emitted as animation events.
+
+  - id: hud-renderer
+    name: "HUD — score / stars / course progress bar"
+    status: new
+    lifecycle_phase: PLAY
+    risk: MEDIUM
+    complexity: med
+    cos_required: [canvas, scoring]
+    ux_zones:
+      thumb_zone: out-of-reach
+      touch_targets: [pause-button]
+      feedback_surfaces: [score-text, star-indicators, progress-bar]
+    affected_files:
+      - <game-root>/renderers/HudRenderer.ts
+    dependencies: [ecs-plugin, game-state-signals]
+    ux:
+      discovery: "HUD is top 80 px — always visible, non-thumb zone (passive info per UX guidelines)"
+      feedback: "Score updates on token collection (immediate number pop); stars update on course complete"
+      onboarding: "Score/stars visible from first frame"
+    notes: >
+      HUD reserves top 80 px (GDD spec). GPU overlay rendered in Pixi (not DOM).
+      Contains: score counter, 3-star indicators, course progress bar.
+      Pause button in HUD — top area per UX guidelines (passive/infrequent action, stretching zone OK).
+      Progress bar: shows runner position relative to finish flag.
+      Bridges from ECS resources via bridgeEcsToSignals for DOM screens; reads signals in HUD.
+
+  - id: scoring-system
+    name: "Scoring system — token-based with star rating"
+    status: new
+    lifecycle_phase: PLAY
+    risk: LOW
+    complexity: low
+    cos_required: [scoring]
+    affected_files:
+      - <game-root>/logic/scoring.ts
+      - <game-root>/PlatformRushPlugin.ts
+    dependencies: [ecs-plugin, token-entity]
+    ux:
+      discovery: "Score increments visibly in HUD on each token collection"
+      feedback: "+10 score pop per token; star count updates at course end"
+      onboarding: "Token density ensures regular score feedback from first course"
+    notes: >
+      Base: +10 per token collected.
+      Star thresholds: 1 star = any finish, 2 stars = ≥50% tokens, 3 stars = ≥90% tokens.
+      GDD scoring is token-collection based (flat per-token). For scoring CoS (core pass),
+      base formula exists and varies with action magnitude.
+      combo/chain multipliers (scoring CoS secondary pass): deferred — no chain mechanics in GDD.
+      Open question: GDD does not define speed bonus or efficiency bonus beyond star thresholds.
+      Status note: scoring CoS secondary and meta dimensions deferred-to-pass-secondary / deferred-to-pass-meta.
+
+  - id: district-map-screen
+    name: "District Map — PROGRESSION screen"
+    status: new
+    lifecycle_phase: PROGRESSION
+    risk: MEDIUM
+    complexity: med
+    cos_required: []
+    ux_zones:
+      thumb_zone: center
+      touch_targets: [course-nodes]
+      feedback_surfaces: [district-map, course-node-stars, lock-state]
+    affected_files:
+      - src/game/screens/StartScreen.tsx
+      - <game-root>/screens/DistrictMapOverlay.tsx
+    dependencies: [game-state-signals]
+    ux:
+      discovery: "Unlocked nodes visually distinct from locked; star counts show prior performance"
+      feedback: "Tap on unlocked node → immediate navigation; locked nodes show lock icon"
+      onboarding: "First visit: only course 0 unlocked; player guided by single available option"
+    notes: >
+      lifecycle_phase: PROGRESSION — cos_required is empty (primary home is PROGRESSION, not PLAY).
+      Per lifecycle.md: PROGRESSION maps to an overlay/branch within the existing 4-screen IDs.
+      district-map renders as an overlay on the 'start' screen (between title and game).
+      GDD: stylised map of district skyline; course nodes (locked/unlocked/complete); star counts.
+      3 districts at launch, 8 courses each. Course unlock: complete previous course.
+
+  - id: course-start-interstitial
+    name: "Course Start Interstitial — TITLE lifecycle overlay"
+    status: new
+    lifecycle_phase: TITLE
+    risk: LOW
+    complexity: low
+    cos_required: []
+    ux_zones:
+      thumb_zone: center
+      touch_targets: [tap-to-skip]
+      feedback_surfaces: [district-name, course-number, course-descriptor]
+    affected_files:
+      - <game-root>/screens/CourseStartInterstitial.tsx
+    dependencies: [game-state-signals]
+    ux:
+      discovery: "Auto-advances after 1.5 s; tap to skip for repeat players"
+      feedback: "Smooth fade transition into gameplay"
+      onboarding: "Shows course name/number to orient player"
+    notes: >
+      lifecycle_phase: TITLE — cos_required is empty (TITLE phase, not PLAY).
+      Auto-advances after 1.5 s or tap to skip.
+      Shows: district name, course number, brief descriptor (e.g. 'District 1 · Course 3 — Neon Rooftops').
+      Renders as a DOM overlay before GPU init for that session (or as a transitional screen).
+
+  - id: win-sequence
+    name: "Win sequence — course complete animation + screen"
+    status: new
+    lifecycle_phase: OUTCOME
+    risk: MEDIUM
+    complexity: med
+    cos_required: [core-interaction, animated-dynamics, scoring]
+    ux_zones:
+      thumb_zone: center
+      touch_targets: [continue-button]
+      feedback_surfaces: [star-rating, tokens-count, course-complete-jingle]
+    affected_files:
+      - src/game/screens/ResultsScreen.tsx
+      - <game-root>/screens/WinSequenceController.ts
+    dependencies: [star-rating-system, scoring-system, results-screen]
+    ux:
+      discovery: "Runner victory animation (400 ms arms-raised) immediately communicates success"
+      feedback: "Sequence: WON state → runner victory anim → scroll freeze → star calculation → jingle → Course Complete fade → stars staggered (150 ms each, 100 ms apart) → Continue button (200 ms fade)"
+      onboarding: "Sequential reveal teaches star rating system naturally"
+    notes: >
+      Ordered sequence per GDD:
+        1. boardState → WON
+        2. Runner victory animation (400 ms)
+        3. Horizontal scroll freezes
+        4. Star rating calculated
+        5. Course Complete jingle
+        6. Course Complete Screen fade in (300 ms cross-dissolve)
+        7. Stars animate staggered (150 ms each, 100 ms apart)
+        8. Continue button fade in (200 ms)
+      All animation via GSAP. No requestAnimationFrame.
+
+  - id: loss-retry-system
+    name: "Loss / retry system — fall death + respawn"
+    status: new
+    lifecycle_phase: OUTCOME
+    risk: MEDIUM
+    complexity: med
+    cos_required: [core-interaction, animated-dynamics]
+    ux_zones:
+      thumb_zone: center
+      touch_targets: [try-again-button, district-map-button]
+      feedback_surfaces: [tokens-collected-rollup, try-again-button, district-map-button]
+    affected_files:
+      - src/game/screens/ResultsScreen.tsx
+      - <game-root>/screens/LossSequenceController.ts
+    dependencies: [results-screen, game-state-signals]
+    ux:
+      discovery: "Runner fall animation + screen fade = clear failure signal"
+      feedback: "Sequence: FALLING → fall anim → fade to dark (400 ms) → Loss Screen fade in (300 ms) → roll-up counter (500 ms) → buttons"
+      onboarding: "Try Again is primary button when retry available; framed as continuation"
+    notes: >
+      1 free retry per course. Retry respawns at last safe platform.
+      Loss screen language: 'Nice try!' — never 'Game Over' (GDD explicit constraint).
+      Ordered sequence per GDD:
+        1. boardState → FALLING
+        2. Runner fall animation
+        3. Screen fades to dark (400 ms)
+        4. Loss Screen fades in (300 ms)
+        5. Roll-up counter (500 ms)
+        6. Try Again button (if retry available) + District Map button
+      retriesRemaining stored in ECS resource.
+
+  - id: star-rating-system
+    name: "Star rating system (1-3 stars based on tokens)"
+    status: new
+    lifecycle_phase: OUTCOME
+    risk: LOW
+    complexity: low
+    cos_required: [scoring]
+    affected_files:
+      - <game-root>/logic/starRating.ts
+      - <game-root>/PlatformRushPlugin.ts
+    dependencies: [scoring-system, token-entity]
+    ux:
+      discovery: "3-star indicators visible in HUD during play; outcome reveals earned count"
+      feedback: "Stars animate onto screen staggered; each star arrival has pop animation"
+      onboarding: "1 star = any finish → low floor, player always earns something"
+    notes: >
+      1 star = any finish, 2 stars = ≥50% tokens, 3 stars = ≥90% tokens.
+      Star thresholds: tokensCollected / tokensTotal.
+      Best star per course stored in progression (district map shows stars per node).
+      Pure logic function — takes tokensCollected + tokensTotal, returns 1|2|3.
+
+  - id: district-complete-screen
+    name: "District Complete Screen — OUTCOME overlay"
+    status: new
+    lifecycle_phase: OUTCOME
+    risk: LOW
+    complexity: low
+    cos_required: []
+    ux_zones:
+      thumb_zone: center
+      touch_targets: [next-district-button]
+      feedback_surfaces: [district-name, total-stars, next-district-button, skyline-art]
+    affected_files:
+      - <game-root>/screens/DistrictCompleteOverlay.tsx
+      - src/game/screens/ResultsScreen.tsx
+    dependencies: [game-state-signals, district-map-screen]
+    ux:
+      discovery: "Triggered automatically after completing all 8 courses in a district"
+      feedback: "Shows district name, total stars collected, skyline art, Next District button"
+      onboarding: "Next District button guides player forward; stars reinforce mastery"
+    notes: >
+      lifecycle_phase: OUTCOME — cos_required is empty (non-PLAY OUTCOME screen).
+      Shown when all 8 courses in a district are complete.
+      Unlocks next district's first course. At max district, shows completion state.
+      Renders as branch within 'results' screen ID or overlay.
+
+  # ── CONFLICT ─────────────────────────────────────────────────────────────────
+
+  - id: results-screen-language
+    name: "Results Screen language — 'Game Over' vs 'Nice try!'"
+    status: conflict
+    lifecycle_phase: OUTCOME
+    risk: LOW
+    complexity: low
+    cos_required: [core-interaction]
+    affected_files:
+      - src/game/screens/ResultsScreen.tsx
+    dependencies: [results-screen]
+    ux:
+      discovery: "N/A — text copy"
+      feedback: "Tone of loss screen affects retry motivation"
+      onboarding: "N/A"
+    notes: >
+      Scaffold ResultsScreen uses 'Game Over' heading. GDD explicitly forbids 'Game Over' language
+      — loss screen must say 'Nice try!' and frame retry as continuation.
+      Sub-classified as adapt: infrastructure is correct (same screen ID), copy must change.
+      No structural rewrite needed.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CONFLICTS
+# ─────────────────────────────────────────────────────────────────────────────
+conflicts:
+  - id: game-controller-stub
+    sub: replace
+    reason: "DOM-mode placeholder must be replaced with Pixi GameController. Architecture is incompatible — DOM div cannot host the GPU canvas game loop, physics engine, or ECS integration the GDD requires. Infrastructure (contract interface, screen wiring) is reused; implementation is replaced."
+
+  - id: results-screen-language
+    sub: adapt
+    reason: "Change 'Game Over' heading to 'Nice try!' and split into win/loss branches. Infrastructure (screen ID, navigation, score display) is preserved — only copy and branch logic change."
+
+# ─────────────────────────────────────────────────────────────────────────────
+# RISK AREAS
+# ─────────────────────────────────────────────────────────────────────────────
+risk_areas:
+  - feature: game-controller-stub
+    reason: "Central integration point. Replacing DOM stub with Pixi GameController touches renderer, ECS, physics, input, HUD, asset loading, and state bridge simultaneously. Every other PLAY feature depends on it. If this breaks, the game screen is blank."
+
+  - feature: ecs-plugin
+    reason: "New ECS plugin defines the entire state schema. Property order is runtime-enforced; wrong order causes silent failures. All actions must be pure (no Pixi, no Math.random, no DOM) — violations break ECS purity and testability."
+
+  - feature: physics-engine
+    reason: "Viewport-affecting logic: runner position, scroll offset, and platform collision all feed the renderer. Physics bugs manifest as visual glitches or unplayable courses. Deterministic output required for solvability validation and benchmark reproducibility."
+
+  - feature: level-generation-system
+    reason: "Touches multiple systems: RNG, platform sequence, obstacle placement, token placement, solvability validation. A generation bug can produce unplayable courses silently. Retry + fallback chain reduces risk but adds complexity."
+
+# ─────────────────────────────────────────────────────────────────────────────
+# OPEN QUESTIONS
+# ─────────────────────────────────────────────────────────────────────────────
+open_questions:
+  - id: q-game-name
+    question: "What is the game slug (directory name under src/game/)?"
+    context: "GDD title is 'PlatformRush'. Slug candidates: platformrush, platform-rush. Plan resolves this and substitutes <game-root>."
+
+  - id: q-scoring-dimensions
+    question: "Does PlatformRush scoring include any multiplier beyond token-count and star thresholds?"
+    context: "GDD specifies +10 per token and star thresholds (1/2/3 stars). No speed bonus, chain multiplier, or efficiency bonus is defined. Scoring CoS (core pass) requires at least 2 multiplicative dimensions. Current formula is additive only. Plan must decide: add a time-bonus or completion-speed multiplier, or document a rationale for why token-count + star-threshold satisfies the CoS base requirement."
+
+  - id: q-district-progression-persistence
+    question: "Where is district/course unlock state persisted between sessions?"
+    context: "GDD describes district map with locked/unlocked/complete course nodes and star counts. No persistence mechanism is specified (localStorage, server-side, etc.). Core pass can keep unlock state in-memory (resets on reload) but plan should flag if a persistence layer is needed."
+
+# ─────────────────────────────────────────────────────────────────────────────
+# COLLISION WARNINGS
+# (per precedence.md: every GDD ask that collides with a rule, scaffold fact, or
+#  runContext fact must be listed here; plan resolves each one)
+# ─────────────────────────────────────────────────────────────────────────────
+warnings:
+  - "collision:screen-id-district-map — gdd=district-map (separate screen) vs skill=valid-screen-ids(loading|start|game|results) (precedence.md § scaffold-state § valid screen IDs) — critical"
+  - "collision:screen-id-interstitial — gdd=course-start-interstitial (separate screen) vs skill=valid-screen-ids(loading|start|game|results) (precedence.md § scaffold-state § valid screen IDs) — critical"
+  - "collision:screen-id-district-complete — gdd=district-complete (separate screen) vs skill=valid-screen-ids(loading|start|game|results) (precedence.md § scaffold-state § valid screen IDs) — critical"
+  - "collision:results-screen-copy — gdd='Nice try!' (loss screen heading) vs scaffold='Game Over' (src/game/screens/ResultsScreen.tsx:22) — soft"
+  - "collision:game-controller-mode — gdd=pixi-gpu-game vs scaffold=dom-mode-placeholder (src/game/mygame/screens/gameController.ts) — soft (guardrail #15: no stubs in shipped code makes this a critical guardrail violation)"
+  - "collision:scoring-dimensions — gdd=flat-additive(+10 per token) vs skill=scoring-CoS(requires ≥2 multiplicative dimensions at core pass) (references/conditions/scoring.md § per-pass scope) — soft"

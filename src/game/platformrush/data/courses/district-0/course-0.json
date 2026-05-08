@@ -1,0 +1,26 @@
+{
+  "source": "fixture",
+  "description": "District 0 Course 0 — Safe intro. No obstacles, narrow gaps (max 1 cell), normal platforms only.",
+  "platforms": [
+    { "x": 0, "y": 500, "width": 256, "type": "normal" },
+    { "x": 320, "y": 500, "width": 192, "type": "normal" },
+    { "x": 576, "y": 500, "width": 192, "type": "normal" },
+    { "x": 832, "y": 500, "width": 256, "type": "normal" },
+    { "x": 1152, "y": 500, "width": 192, "type": "normal" },
+    { "x": 1408, "y": 500, "width": 192, "type": "normal" },
+    { "x": 1664, "y": 500, "width": 256, "type": "normal" },
+    { "x": 1984, "y": 500, "width": 256, "type": "normal" }
+  ],
+  "tokens": [
+    { "x": 160, "y": 460 },
+    { "x": 416, "y": 460 },
+    { "x": 672, "y": 460 },
+    { "x": 960, "y": 460 },
+    { "x": 1280, "y": 460 },
+    { "x": 1536, "y": 460 },
+    { "x": 1792, "y": 460 },
+    { "x": 2112, "y": 460 }
+  ],
+  "obstacles": [],
+  "finishFlagX": 2112
+}
