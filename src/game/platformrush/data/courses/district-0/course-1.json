@@ -1,0 +1,26 @@
+{
+  "source": "fixture",
+  "description": "District 0 Course 1 — Introduces crumbling platforms. No bouncy, no obstacles.",
+  "platforms": [
+    { "x": 0, "y": 500, "width": 256, "type": "normal" },
+    { "x": 320, "y": 500, "width": 192, "type": "normal" },
+    { "x": 576, "y": 500, "width": 128, "type": "crumbling" },
+    { "x": 768, "y": 500, "width": 192, "type": "normal" },
+    { "x": 1024, "y": 500, "width": 128, "type": "crumbling" },
+    { "x": 1216, "y": 500, "width": 256, "type": "normal" },
+    { "x": 1536, "y": 500, "width": 192, "type": "normal" },
+    { "x": 1792, "y": 500, "width": 256, "type": "normal" },
+    { "x": 2112, "y": 500, "width": 256, "type": "normal" }
+  ],
+  "tokens": [
+    { "x": 128, "y": 460 },
+    { "x": 416, "y": 460 },
+    { "x": 864, "y": 460 },
+    { "x": 1344, "y": 460 },
+    { "x": 1632, "y": 460 },
+    { "x": 1920, "y": 460 },
+    { "x": 2240, "y": 460 }
+  ],
+  "obstacles": [],
+  "finishFlagX": 2240
+}

@@ -1,14 +1,16 @@
-import { onMount, onCleanup } from 'solid-js';
+import { onMount, onCleanup, createEffect } from 'solid-js';
 
 import { useAssets } from '~/core/systems/assets';
 import { PauseOverlay, useTuning, type ScaffoldTuning } from '~/core';
 import { Logo } from '~/core/ui/Logo';
 import { useAudio } from '~/core/systems/audio';
 import { useGameTracking } from '~/game/setup/tracking';
+import { useScreen } from '~/core/systems/screens';
 
 import type { GameTuning } from '~/game/tuning';
 import { useGameData } from '~/game/screens/useGameData';
 import { gameState } from '~/game/state';
+import { BoardState } from '~/game/platformrush/state/types';
 
 // Game-specific controller — swap this import for a different game
 import { setupGame } from '~/game/mygame/screens/gameController';
@@ -19,6 +21,7 @@ export default function GameScreen() {
   const audio = useAudio();
   const gameData = useGameData();
   const { core: analytics } = useGameTracking();
+  const { goto } = useScreen();
   let containerRef: HTMLDivElement | undefined;
 
   // Setup game-specific controller (creates signals & effects in reactive context)
@@ -30,6 +33,14 @@ export default function GameScreen() {
     analytics,
   });
 
+  // Auto-navigate to results when game ends (WON or FALLING)
+  createEffect(() => {
+    const state = gameState.boardState?.();
+    if (state === BoardState.WON || state === BoardState.FALLING) {
+      void goto('results');
+    }
+  });
+
   onMount(() => {
     if (containerRef) controller.init(containerRef);
   });
@@ -37,7 +48,10 @@ export default function GameScreen() {
   onCleanup(() => controller.destroy());
 
   return (
-    <div class="fixed inset-0 bg-black">
+    <div
+      class="fixed inset-0 bg-black"
+      style={{ "touch-action": "none", "user-select": "none", "-webkit-user-select": "none" }}
+    >
       {/* Engine canvas container */}
       <div
         ref={containerRef}

@@ -46,19 +46,31 @@ export const manifest: Manifest = {
       assets: [{ alias: 'atlas-branding-wolf', src: 'atlas-branding-wolf.json' }],
     },
 
-    // When adding bundles for your game, use the appropriate prefix:
-    //
-    //   scene-*  → GPU spritesheets, backgrounds, tiles
-    //   core-*   → GPU in-game UI atlases
-    //   fx-*     → GPU particles, effects, VFX
-    //   audio-*  → Howler sound effects and music
-    //   data-*   → JSON config files
-    //   boot-*   → DOM pre-engine splash assets
-    //
-    // Examples:
-    //   { name: 'scene-tiles-mygame', assets: [{ alias: 'scene-tiles-mygame', src: 'atlas-tiles-mygame.json' }] },
-    //   { name: 'fx-blast', assets: [{ alias: 'fx-blast', src: 'vfx-blast.json' }] },
-    //   { name: 'audio-sfx-mygame', assets: [{ alias: 'audio-sfx-mygame', src: 'sfx-mygame.json' }] },
-    //   { name: 'audio-music-mygame', assets: [{ alias: 'audio-music-mygame', src: 'music-mygame.json' }] },
+    // ── PlatformRush bundles ──────────────────────────────────────────────────
+    // scene-* → GPU (Pixi) spritesheets for game entities
+    {
+      name: 'scene-platformrush',
+      assets: [{ alias: 'scene-platformrush', src: 'atlas-platformrush.json' }],
+    },
+    // fx-* → GPU particles and VFX
+    {
+      name: 'fx-platformrush',
+      assets: [{ alias: 'fx-platformrush', src: 'vfx-platformrush.json' }],
+    },
+    // audio-* → Howler sound effects
+    {
+      name: 'audio-sfx-platformrush',
+      assets: [{ alias: 'audio-sfx-platformrush', src: 'sfx-platformrush.json' }],
+    },
+    // audio-* → Howler music per district
+    {
+      name: 'audio-music-platformrush',
+      assets: [{ alias: 'audio-music-platformrush', src: 'music-platformrush.json' }],
+    },
+    // data-* → JSON course fixtures
+    {
+      name: 'data-platformrush',
+      assets: [{ alias: 'data-platformrush', src: 'data-platformrush.json' }],
+    },
   ],
 };

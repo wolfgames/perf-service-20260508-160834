@@ -1,0 +1,74 @@
+aliases:
+  runDir: /var/lib/agent-worker/workspace/perf-service-20260508-160834/pipeline/runs/run-01
+  pass: core
+  skillRoot: /var/lib/agent-worker/workspace/perf-service-20260508-160834/.claude/skills/pipeline-build-game
+  repoRoot: /var/lib/agent-worker/workspace/perf-service-20260508-160834
+  rules: /var/lib/agent-worker/workspace/perf-service-20260508-160834/.claude/rules
+  tsRunner: bun
+  previousRunLog: null
+  buildCmd: "bun run build"
+  testCmd: "bun run test"
+
+# Pass context — mirrored from $runLog.pass and $phaseSummary.pass_gate.previous_pass_stable
+pass: core
+previous_pass_stable: true
+
+stack:
+  renderer: "pixi"
+  ui: "solidjs"
+  bundler: "vite"
+  runtime: "bun"
+  testing: "vitest"
+  animation: "gsap"
+  build_cmd: "bun run build"
+  test_cmd: "bun run test"
+  summary: "pixi + solidjs + gsap + bun (vite, vitest)"
+
+paths:
+  tests: "tests/"
+  modules: "src/modules/"
+  core: "src/core/"
+  game: "src/game/"
+  docs: "docs/"
+
+existing-features:
+  - "scaffold game contract (setupGame / setupStartScreen stubs)"
+  - "DOM-mode game controller placeholder"
+  - "DOM-mode start screen with Play button and asset loading"
+  - "loading screen with bundle progress tracking"
+  - "results screen with score display and play-again / main-menu buttons"
+  - "global game state signals (score, level)"
+  - "asset manifest (theme-branding bundle only)"
+  - "screen wiring (loading → start → game → results)"
+  - "audio system (Howler, BaseAudioManager)"
+  - "pause overlay (scaffold-level)"
+  - "analytics and error tracking wiring (PostHog, Sentry)"
+
+dom-overlays:
+  - element: Logo
+    file: src/game/screens/GameScreen.tsx
+    position: bottom
+    height-px: 32
+    css: "absolute bottom-8"
+  - element: PauseOverlay
+    file: src/game/screens/GameScreen.tsx
+    position: top
+    height-px: 48
+    css: "scaffold ui overlay"
+
+viewport-budget:
+  default:
+    dom_reserved_top: 0
+    hud_top_gpu: 80
+    play_area: 700
+    dom_reserved_bottom: 64
+    total: 844
+    available_width: 390
+    runner_min_px: 48
+    platform_cell_px: "64x24"
+    fit_check: "700px play area > 506px min (60% of 844px) — OK"
+    derived_from: "greenfield_defaults"
+    source_refs:
+      - "prime.carry_forward.reserved_bottom_px=64"
+      - "prime.carry_forward.reserved_top_px=0"
+      - "gdd-analysis.yml features[hud-renderer].notes HUD top 80px"
