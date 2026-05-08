@@ -21,6 +21,8 @@ import type { GameControllerDeps, GameController, SetupGame } from '~/game/mygam
 
 import { platformRushPlugin, bridgeEcsToSignals } from '~/game/platformrush/PlatformRushPlugin';
 import { RunnerRenderer } from '~/game/platformrush/renderers/RunnerRenderer';
+import { BackgroundRenderer } from '~/game/platformrush/renderers/BackgroundRenderer';
+import { HudRenderer } from '~/game/platformrush/renderers/HudRenderer';
 import { InputHandler, type InputHandlerOptions } from '~/game/platformrush/input/InputHandler';
 import { BoardState } from '~/game/platformrush/state/types';
 import { calcJumpVelocity, tickPhysics, GROUND_Y } from '~/game/platformrush/logic/physics';
@@ -46,6 +48,8 @@ export const setupGame: SetupGame = (_deps: GameControllerDeps): GameController 
   let uiLayer: Container | null = null;
 
   let runnerRenderer: RunnerRenderer | null = null;
+  let backgroundRenderer: BackgroundRenderer | null = null;
+  let hudRenderer: HudRenderer | null = null;
   let inputHandler: InputHandler | null = null;
 
   // Charge indicator — radial fill shown during hold
@@ -90,6 +94,20 @@ export const setupGame: SetupGame = (_deps: GameControllerDeps): GameController 
         uiLayer.eventMode = 'passive';
 
         app.stage.addChild(bgLayer, gameLayer, hudLayer, uiLayer);
+
+        // ── Background ─────────────────────────────────────────────────
+        backgroundRenderer = new BackgroundRenderer();
+        backgroundRenderer.init(app.screen.width, app.screen.height);
+        bgLayer.addChild(backgroundRenderer.container);
+
+        // ── HUD ────────────────────────────────────────────────────────
+        hudRenderer = new HudRenderer();
+        hudRenderer.init(app.screen.width, app.screen.height);
+        hudLayer.addChild(hudRenderer.container);
+        hudRenderer.onPause = () => {
+          if (!ecsDb) return;
+          ecsDb.transactions.setBoard(BoardState.PAUSED);
+        };
 
         // ── Runner ──────────────────────────────────────────────────────
         runnerRenderer = new RunnerRenderer();
@@ -175,6 +193,18 @@ export const setupGame: SetupGame = (_deps: GameControllerDeps): GameController 
         // ── Physics game loop (GSAP ticker via Pixi ticker) ─────────────
         app.ticker.add((ticker) => {
           if (!ecsDb) return;
+
+          // Sync HUD with ECS resources every frame
+          hudRenderer?.updateScore(ecsDb.resources.score);
+          hudRenderer?.updateStars(ecsDb.resources.starsEarned);
+          const { finishFlagX, runnerX } = ecsDb.resources;
+          if (finishFlagX > 0) {
+            hudRenderer?.updateProgress(Math.min(runnerX / finishFlagX, 1));
+          }
+
+          // Sync background parallax scroll
+          backgroundRenderer?.syncScroll(ecsDb.resources.scrollOffset);
+
           const { boardState, runnerY, runnerVY } = ecsDb.resources;
           if (boardState !== BoardState.AIRBORNE && boardState !== BoardState.BOUNCING) return;
 
@@ -227,6 +257,16 @@ export const setupGame: SetupGame = (_deps: GameControllerDeps): GameController 
     if (runnerRenderer) {
       runnerRenderer.destroy();
       runnerRenderer = null;
+    }
+
+    if (hudRenderer) {
+      hudRenderer.destroy();
+      hudRenderer = null;
+    }
+
+    if (backgroundRenderer) {
+      backgroundRenderer.destroy();
+      backgroundRenderer = null;
     }
 
     if (chargeIndicator) {

@@ -94,28 +94,28 @@ export function LoadingScreen() {
   });
 
   return (
-    <div class="fixed inset-0 flex flex-col items-center justify-center bg-[#BCE083]">
+    <div class="fixed inset-0 flex flex-col items-center justify-center bg-[#1a1a2e]">
       <Show
         when={failedBundles().length === 0}
         fallback={
           <div class="text-center max-w-sm px-6">
-            <p class="text-lg font-semibold text-gray-800 mb-2">Unable to load</p>
-            <p class="text-sm text-gray-600 mb-4">
+            <p class="text-lg font-semibold text-white mb-2">Unable to load</p>
+            <p class="text-sm text-white/60 mb-4">
               Failed to load: {failedBundles().join(', ')}
             </p>
             <button
               onClick={retryFailed}
-              class="px-6 py-3 bg-white text-gray-800 rounded-xl font-medium shadow-md hover:shadow-lg active:scale-95 transition-all"
+              class="px-6 py-3 bg-cyan-400 text-white rounded-xl font-medium shadow-md hover:shadow-lg active:scale-95 transition-all"
             >
               Retry
             </button>
           </div>
         }
       >
-        <Spinner size="lg" class="w-24 h-24 text-gray-800" />
-        <div class="mt-8 w-64 h-2 bg-white/30 rounded-full overflow-hidden">
+        <Spinner size="lg" class="w-24 h-24 text-cyan-400" />
+        <div class="mt-8 w-64 h-2 bg-white/20 rounded-full overflow-hidden">
           <div
-            class="h-full bg-gray-800 rounded-full transition-all duration-300"
+            class="h-full bg-cyan-400 rounded-full transition-all duration-300"
             style={{ width: `${progress()}%` }}
           />
         </div>

@@ -33,4 +33,18 @@ describe('tokenLogic — collection and scoring', () => {
   it('TOKEN_SCORE is 10', () => {
     expect(TOKEN_SCORE).toBe(10);
   });
+
+  it('runner exactly at token position (zero-distance) is always a hit', () => {
+    // Edge case: exact overlap should never miss
+    const token = { x: 200, y: 460 };
+    const runner = { x: 200, y: 460 };
+    expect(isTokenHit(runner, token)).toBe(true);
+  });
+
+  it('token 32px away (exactly at hitbox boundary) is still a hit', () => {
+    // Edge case: boundary condition — exactly at TOKEN_HITBOX_PX distance
+    const token = { x: 200, y: 460 };
+    const runner = { x: 232, y: 460 }; // exactly 32px right
+    expect(isTokenHit(runner, token)).toBe(true);
+  });
 });

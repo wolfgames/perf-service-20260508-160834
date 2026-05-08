@@ -76,4 +76,11 @@ describe('board-states — state machine transitions', () => {
     expect(result.nextState).toBe(BoardState.LANDING);
     expect(result.animationEvent).toBeDefined();
   });
+
+  it('BOUNCING state blocks tap (edge case: no double-jump from bounce)', () => {
+    // Edge case: bounce puts runner in BOUNCING, which should also block double-jump
+    const result = transitionOnTap(BoardState.BOUNCING);
+    expect(result.blocked).toBe(true);
+    expect(result.nextState).toBe(BoardState.BOUNCING); // unchanged
+  });
 });

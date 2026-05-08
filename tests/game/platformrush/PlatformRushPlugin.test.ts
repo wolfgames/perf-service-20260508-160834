@@ -105,6 +105,25 @@ describe('PlatformRushPlugin — ECS resources and transactions', () => {
   });
 });
 
+describe('PlatformRushPlugin — edge cases', () => {
+  it('replaceLevel clears all entity archetypes (Platform, Obstacle, Token)', () => {
+    const db = createDb();
+    // Insert a platform entity
+    db.store.archetypes.Platform.insert({ platformX: 0, platformY: 500, platformWidth: 128, platformType: 'normal', crumbleTimer: 0 });
+    // Replace level — should delete all entities
+    db.transactions.replaceLevel({ tokensTotal: 5 });
+    const remaining = Array.from(db.store.select(['platformX']));
+    expect(remaining).toHaveLength(0);
+  });
+
+  it('triggerWin with parTime=0 does not throw (actualTime guard)', () => {
+    const db = createDb();
+    db.transactions.replaceLevel({ tokensTotal: 5 });
+    // Edge case: actualTime=0 (divide-by-zero guard in scoring)
+    expect(() => db.transactions.triggerWin({ parTime: 0, actualTime: 0 })).not.toThrow();
+  });
+});
+
 describe('PlatformRushPlugin — bridgeEcsToSignals propagation', () => {
   it('bridgeEcsToSignals propagates score to DOM signal', async () => {
     // Dynamic import to avoid module-level side effects

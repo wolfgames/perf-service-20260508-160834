@@ -32,6 +32,18 @@ describe('scoring — formula and star thresholds', () => {
     expect(calcStars(10, 10)).toBe(3);  // 100% tokens
   });
 
+  it('zero tokens × any speed = score 0 (beginner floor)', () => {
+    // Edge case: beginner never collects a token
+    const score = calcScore({ tokensCollected: 0, parTimeMs: 2000, actualTimeMs: 500 });
+    expect(score).toBe(0); // 0 tokens * 10 * 2.0 = 0
+  });
+
+  it('speedMultiplier when actualTimeMs=0 defaults to max (2.0)', () => {
+    // Edge case: divide-by-zero guard
+    const mult = calcSpeedMultiplier({ parTimeMs: 1000, actualTimeMs: 0 });
+    expect(mult).toBe(2.0);
+  });
+
   it('skilled player score >= 3x beginner on same course', () => {
     const tokensTotal = 10;
     const parTimeMs = 2000;

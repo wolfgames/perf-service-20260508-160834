@@ -105,4 +105,32 @@ describe('physics — jump arc calculation', () => {
   it('GRAVITY is 9.8 * 64', () => {
     expect(GRAVITY).toBeCloseTo(9.8 * 64, 1);
   });
+
+  it('tickPhysics returns unchanged state when boardState is IDLE (not airborne)', () => {
+    // Edge case: ticker should be a no-op in IDLE state
+    const state = {
+      runnerY: 620,
+      runnerVY: 0,
+      boardState: 'IDLE' as const,
+      groundY: 620,
+    };
+    const result = tickPhysics(state, 16);
+    expect(result.runnerY).toBe(620);     // unchanged
+    expect(result.runnerVY).toBe(0);       // unchanged
+    expect(result.landed).toBe(false);
+    expect(result.animationEvents).toHaveLength(0);
+  });
+
+  it('runner exactly at groundY during AIRBORNE lands immediately', () => {
+    // Edge case: runner already at ground when tick fires
+    const state = {
+      runnerY: 620,
+      runnerVY: 1,   // tiny downward push
+      boardState: 'AIRBORNE' as const,
+      groundY: 620,
+    };
+    const result = tickPhysics(state, 16);
+    expect(result.landed).toBe(true);
+    expect(result.runnerY).toBe(620);
+  });
 });

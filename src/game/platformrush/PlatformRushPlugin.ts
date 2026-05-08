@@ -13,6 +13,7 @@ import { Observe } from '@adobe/data/observe';
 
 import { BoardState, type BoardState as BoardStateType } from '~/game/platformrush/state/types';
 import { calcStars } from '~/game/platformrush/logic/starRating';
+import { calcScore } from '~/game/platformrush/logic/scoring';
 
 // ── Plugin ──────────────────────────────────────────────────────────────────
 
@@ -118,9 +119,11 @@ export const platformRushPlugin = Database.Plugin.create({
     },
 
     triggerWin(store, { parTime, actualTime }: { parTime: number; actualTime: number }) {
-      const speedMultiplier = Math.min(Math.max(parTime / Math.max(actualTime, 1), 1.0), 2.0);
-      const tokenScore = store.resources.tokensCollected * 10;
-      const finalScore = Math.round(tokenScore * speedMultiplier);
+      const finalScore = calcScore({
+        tokensCollected: store.resources.tokensCollected,
+        parTimeMs: parTime,
+        actualTimeMs: actualTime,
+      });
       const stars = calcStars(store.resources.tokensCollected, store.resources.tokensTotal);
 
       store.resources.score = finalScore;
@@ -184,6 +187,7 @@ export function bridgeEcsToSignals(
   sub(db.observe.resources.tokensCollected, gs.setTokensCollected);
   sub(db.observe.resources.tokensTotal, gs.setTokensTotal);
   sub(db.observe.resources.retriesRemaining, gs.setRetriesRemaining);
+  sub(db.observe.resources.boardState, gs.setBoardState);
 
   return () => unsubs.forEach((u) => u());
 }
